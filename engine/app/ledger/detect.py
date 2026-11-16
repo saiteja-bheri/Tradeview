@@ -24,6 +24,34 @@ def detect(content: bytes | str) -> str:
     return "upstox"  # also reads this app's own export
 
 
+BROKER_LABELS = {"zerodha": "Zerodha Console tradebook", "groww": "Groww order report",
+                 "upstox": "Upstox trade book", "export": "This app's own trade export"}
+
+
+def broker_of_rows(rows: list[list[str]]) -> str | None:
+    """Which broker's report these rows are, judged strictly by its headings, or None
+    for anything else (your own holdings file, a template...). Unlike `detect`, this
+    never guesses Upstox just because nothing else matched."""
+    for row in rows[:40]:
+        headers = {table.norm(c) for c in row}
+        if "ledger id" in headers and "scrip code" in headers:
+            return "export"
+        if zerodha.looks_like(headers):
+            return "zerodha"
+        if groww.looks_like(headers):
+            return "groww"
+        if "scrip code" in headers and ({"trade num", "segment", "company"} & headers):
+            return "upstox"
+    return None
+
+
+def broker_of(content: bytes | str) -> str | None:
+    try:
+        return broker_of_rows(table.read_rows(content))
+    except Exception:
+        return None
+
+
 def parse(content: bytes | str, broker: str = "auto") -> tuple[str, ParseResult]:
     name = detect(content) if broker in ("", "auto") else broker
     if name not in PARSERS:

@@ -39,9 +39,11 @@ export function WealthPane() {
   const [busy, setBusy] = useState(false);
 
   const load = () => api.wealth().then(setW).catch((e) => setError((e as Error).message));
+  // Reload whenever the portfolio is recomputed (an import, a trade edit, REFRESH).
+  const portfolio = useStore((s) => s.portfolio);
   useEffect(() => {
     load();
-  }, []);
+  }, [portfolio]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -41,7 +41,7 @@ type Line = { key: string; label: string; color: string; values: (number | null)
 /** Graphs of the portfolio and net worth over time. Pick the graph, the period
  *  (presets or FROM / TO), drag to pan, scroll to zoom, hover for the figures. */
 export function PerformancePane() {
-  const epoch = useStore((s) => s.portfolio?.as_of);
+  const epoch = useStore((s) => s.portfolio);          // a new object after every recompute (import, edit, refresh)
   const [data, setData] = useState<Timeline | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("value");

@@ -1,4 +1,4 @@
-import type { PortfolioCash, Timeline, NewsSource, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
+import type { PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
 
 declare global {
   interface Window {
@@ -125,12 +125,13 @@ export const api = {
   insightPreview: () => call<Record<string, unknown>>("/api/insight/preview"),
   createMemo: () => call<Memo>("/api/insight/memo", { method: "POST" }),
   memos: () => call<Memo[]>("/api/insight/memos"),
-  importCsv: (file: File, columns?: Record<string, string | null>, headerRow?: number) => {
+  importCsv: (file: File, columns?: Record<string, string | null>, headerRow?: number, broker?: string) => {
     const form = new FormData();
     form.append("file", file);
     if (columns) form.append("columns", JSON.stringify(columns));
     if (headerRow != null) form.append("header_row", String(headerRow));
-    return call<ImportResult>("/api/ledger/import", { method: "POST", body: form });
+    const q = broker ? `?broker=${encodeURIComponent(broker)}` : "";
+    return call<ImportResult>(`/api/ledger/import${q}`, { method: "POST", body: form });
   },
   importPreview: (file: File) => {
     const form = new FormData();
@@ -138,6 +139,22 @@ export const api = {
     return call<ImportPreview>("/api/ledger/import/preview", { method: "POST", body: form });
   },
   importFormats: () => call<ImportFormats>("/api/ledger/import/formats"),
+  everythingPreview: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return call<EverythingPreview>("/api/import/everything/preview", { method: "POST", body: form });
+  },
+  importEverything: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return call<EverythingResult>("/api/import/everything", { method: "POST", body: form });
+  },
+  everythingTemplate: async () => {
+    const headers = new Headers();
+    if (TOKEN) headers.set("X-QT-Token", TOKEN);
+    const res = await fetch(`${BASE}/api/import/everything/template`, { headers });
+    return res.blob();
+  },
   importTemplate: async () => {
     const headers = new Headers();
     if (TOKEN) headers.set("X-QT-Token", TOKEN);

@@ -272,6 +272,49 @@ Buy/Sell, Txn Date...). If a column still isn't recognised, the import page
 lets you point each field at the right column before importing. DOWNLOAD
 TEMPLATE gives a ready-to-fill file.
 
+### Everything in one file
+
+IMPORT CSV / EXCEL also takes one file holding everything you own. The dialog
+starts by asking what you are uploading:
+
+- **Let the app decide** (the default)
+- **Broker trade report** (Zerodha, Groww or Upstox, with an optional broker picker)
+- **My holdings file**
+
+When the app decides, a file with Zerodha, Groww or Upstox headings is read as
+trades. A file with an **Instrument type** column, or with bond or wealth sheets,
+is read as holdings. After you choose a file, **READ AS** switches between the
+two readings.
+
+**The Instrument type column.** Each row says what it is, and is placed
+accordingly:
+
+- Stock, ETF, Mutual fund and Commodity rows become trades.
+- Bond rows become bonds.
+- FD, RD, PPF, EPF, NPS, Pension, Cash, Life insurance and Term insurance rows become wealth items.
+
+So one sheet can hold everything, and an FD is never mistaken for a stock, or
+EPF for NPS. Common variants are understood too: Equity, MF, Gold, G-Sec,
+Debenture, Fixed Deposit, "HDFC Bank FD", VPF, ULIP, "SBI Term Plan" and so on.
+
+In this sheet, **Interest / coupon %** is the interest or coupon rate, and
+**Price** is the share, unit or NAV price. The import dialog lists every type
+and the columns it uses. DOWNLOAD HOLDINGS TEMPLATE gives a ready-made
+"Holdings" sheet with an example of each type and a drop-down for the type.
+
+Separate sheets without an Instrument type column also work:
+
+| Sheet | What goes in it |
+| --- | --- |
+| Stocks & funds | Every buy and sell of stocks and ETFs. Mutual funds use Exchange `MF` with the AMFI scheme code as the Symbol. Gold, silver and other commodities use Exchange `COMMODITY` with a Symbol such as `GOLD`. |
+| Bonds | Coupon %, Maturity and Frequency. Add Quantity, Purchase price and Purchase date to record the holding too. |
+| Wealth | Type (FD, RD, PPF, EPF, NPS, Pension, Cash, Life insurance / ULIP, Term insurance), Amount, Rate %, Start date, Maturity date, Monthly contribution, Cover, Premium. |
+
+- **Sheet names:** in a sheet named after mutual funds, a blank Exchange means `MF`. In one named after gold or commodities, it means `COMMODITY`.
+- **Wealth details:** amounts can be written as "2 lakh" or "10,00,000". A fixed deposit needs its start date.
+- **Re-importing:** the same workbook again adds no duplicates. Trades keep their ids, bonds are matched by id, and wealth items by type, name, institution and start date. Changed rows are updated.
+- **Skipped rows:** rows that can't be read are listed after the import, with the reason.
+
 ## News
 
 The NEWS tab covers the stocks you hold, watch (eye) or star, plus market news

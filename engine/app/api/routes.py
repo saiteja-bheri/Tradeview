@@ -22,7 +22,7 @@ from app import config
 from app.ai import memo as memo_ai
 from app.ai.gemini import InsightError
 from app.db.models import Bond, CorporateAction, Instrument, Memo, Trade, WealthItem
-from app.ledger import detect, ingest, mapping, table, upstox
+from app.ledger import detect, ingest, mapping, table, upstox, workbook
 from app.market import commodities, symbols
 from app.market import search as market_search
 from app.market.live import LiveHub
@@ -191,7 +191,7 @@ async def remove_upstox_token(request: Request):
 @router.get("/ledger/import/formats")
 def import_formats():
     """The headings each supported file needs, for the import page."""
-    return mapping.formats()
+    return {**mapping.formats(), "everything": workbook.guide(), "broker_labels": detect.BROKER_LABELS}
 
 
 @router.get("/ledger/import/template")
@@ -269,6 +269,42 @@ async def import_ledger(request: Request, file: UploadFile = File(...),
     _poke(request)
     return {"broker": source, "imported": result.imported, "duplicates": result.duplicates,
             "updated": result.updated, "skipped": parsed.skipped}
+
+
+@router.get("/import/everything/template")
+def everything_template():
+    """An Excel workbook with sheets for stocks & funds, bonds and wealth (FD, pension, insurance, cash)."""
+    return Response(content=workbook.template_xlsx(),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="holdings-template.xlsx"'})
+
+
+@router.post("/import/everything/preview")
+async def everything_preview(file: UploadFile = File(...)):
+    """What each sheet of the file holds (trades, bonds or wealth) and how its columns were matched."""
+    content = await file.read()
+    try:
+        return await asyncio.to_thread(workbook.preview, content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/import/everything")
+async def everything_import(request: Request, file: UploadFile = File(...)):
+    """Imports every recognised sheet in one go: trades (stocks, ETFs, mutual funds,
+    commodities), bond terms and holdings, and deposits, pension, cash and insurance."""
+    content = await file.read()
+
+    def run():
+        with request.app.state.sessionmaker() as s:
+            return workbook.import_all(s, content)
+
+    try:
+        result = await asyncio.to_thread(run)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _poke(request)
+    return result
 
 
 @router.get("/ledger/trades")
