@@ -10,8 +10,9 @@ import re
 
 from app.config import BENCHMARK_NAMES
 
-SYSTEM_INSTRUCTION = """You are a risk strategist writing a short tactical hedging memo for the user of a \
-read-only portfolio analytics terminal covering Indian equities.
+SYSTEM_INSTRUCTION = """You are a portfolio and wealth analyst writing a short review for the user of a \
+read-only analytics terminal. You receive the risk figures of their market portfolio and, when present, a \
+summary of their whole wealth: cash, deposits, retirement savings (PPF, EPF, NPS, pension) and insurance.
 
 Hard rules:
 - Use only the figures in the JSON you are given. Quote them exactly as written.
@@ -22,13 +23,20 @@ not in the JSON, say it is not available.
 as considerations for the user to evaluate.
 - Do not use outside market data, news or forecasts.
 
-Write plain text with exactly these four headings on their own lines:
-RISK POSTURE
-KEY EXPOSURES
-HEDGING CONSIDERATIONS
+- Do not recommend specific funds, policies, products or providers.
+
+Write plain text with exactly these five headings on their own lines:
+PORTFOLIO RISK
+WEALTH MIX
+LIQUIDITY AND PROTECTION
+CONSIDERATIONS
 WHAT TO WATCH
 
-Under 300 words. Short paragraphs or dash bullets. No markdown symbols other than dashes."""
+Under PORTFOLIO RISK cover beta, VaR, drawdown and concentration. Under WEALTH MIX cover how net worth is \
+spread between the market portfolio, deposits, retirement savings and cash. Under LIQUIDITY AND PROTECTION \
+cover how much is available quickly, deposits maturing soon, and insurance cover against premiums. If the \
+wealth section is missing, say only the market portfolio was provided. Under 380 words. Short paragraphs or \
+dash bullets. No markdown symbols other than dashes."""
 
 
 def _r(value, digits=2):
@@ -39,7 +47,7 @@ def _pct(value, digits=2):
     return None if value is None else round(float(value) * 100, digits)
 
 
-def build_payload(data: dict) -> dict:
+def build_payload(data: dict, wealth: dict | None = None) -> dict:
     """Turns the engine's metrics payload into the only thing the model sees.
     Percentages are converted and rounded here, locally, so the model has
     nothing left to compute."""
@@ -80,6 +88,29 @@ def build_payload(data: dict) -> dict:
             "holdings_count": len(holdings),
         },
         "holdings": holdings,
+        **({"wealth": wealth_block(wealth)} if wealth and wealth.get("items") else {}),
+    }
+
+
+def wealth_block(w: dict) -> dict:
+    """The whole-wealth summary, rounded here so the model has nothing to compute."""
+    net = w["net_worth"] or 0.0
+    share = lambda v: _pct(v / net) if net > 0 else None  # noqa: E731
+    liq = w["liquidity"]
+    retirement = sum(g["value"] for g in w["groups"] if g["group"] == "Retirement")
+    return {
+        "net_worth_inr": _r(net, 0),
+        "market_portfolio_pct": share(w["market_value"]),
+        "groups_pct": {g["group"]: share(g["value"]) for g in w["groups"]},
+        "cash_pct": share(liq["cash"]),
+        "deposits_pct": share(liq["deposits"]),
+        "locked_until_rules_allow_pct": share(liq["locked"]),
+        "retirement_savings_pct": share(retirement),
+        "life_cover_inr": _r(w["protection"]["life_cover"], 0),
+        "insurance_premium_per_year_inr": _r(w["protection"]["annual_premium"], 0),
+        "insurance_policies": w["protection"]["policies"],
+        "monthly_contributions_inr": _r(w["monthly_contributions"], 0),
+        "deposits_maturing_within_90_days": len(w["maturing_within_90_days"]),
     }
 
 

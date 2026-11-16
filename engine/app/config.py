@@ -17,7 +17,18 @@ DEFAULT_SETTINGS: dict[str, float | int | str] = {
     "lookback_days": 252,
     "cov_horizon_days": 1,
     "risk_free_rate": 0.065,
+    # How money is shown. The ledger and every calculation stay in INR; values are
+    # converted at the latest rate for display. AUTO = the currency most of the
+    # portfolio's value is in.
+    "display_currency": "INR",
+    # How often a new AI memo may be generated: "hourly" or "daily". Asking again
+    # sooner returns the latest memo without calling Gemini (no tokens spent).
+    "insight_frequency": "hourly",
 }
+
+INSIGHT_WINDOWS = {"hourly": 3600, "daily": 86400}
+
+DISPLAY_CURRENCIES = ("AUTO", "INR", "USD", "EUR", "GBP", "JPY", "AED", "SGD", "AUD", "CAD", "CHF", "HKD")
 
 # Ready-made choices for the benchmark picker. Any other Yahoo symbol (index,
 # ETF, mutual fund or stock) can be used too; these are only shortcuts.

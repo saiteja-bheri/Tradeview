@@ -15,6 +15,8 @@ function today(): string {
 }
 
 /** Form for writing down a trade made elsewhere. It only edits the local ledger. */
+const INDIAN = new Set(["NSE", "BSE", "MF", "CMDTY", "BOND"]);
+
 function TradeForm({ trade, onDone }: { trade: Trade | null; onDone: () => void }) {
   const saveTrade = useStore((s) => s.saveTrade);
   const [symbol, setSymbol] = useState(trade?.symbol ?? "");
@@ -60,6 +62,8 @@ function TradeForm({ trade, onDone }: { trade: Trade | null; onDone: () => void 
       symbol: sym, side, quantity: qty, price: px,
       traded_at: `${date}T${time || "00:00"}:00`,
       name: matches.find((m) => m.symbol === sym)?.name || undefined,
+      // Picked from an international search result (AAPL, VOD.L): keep it, price in its own currency.
+      market: INDIAN.has(matches.find((m) => m.symbol === sym)?.exchange ?? "NSE") ? undefined : "INTL",
     };
     const ok = await saveTrade(input, trade?.id);
     setSaving(false);
@@ -78,7 +82,7 @@ function TradeForm({ trade, onDone }: { trade: Trade | null; onDone: () => void 
         <label className="min-w-44 flex-[2]">
           <span className="mb-0.5 block text-[10px] tracking-widest text-dim">STOCK</span>
           <input value={symbol} onChange={(e) => setSymbol(e.target.value)} list="qt-trade-symbols"
-                 placeholder="Name or ticker, e.g. INFY" spellCheck={false} autoComplete="off" autoFocus
+                 placeholder="Stock, ETF, fund or GOLD, e.g. INFY" spellCheck={false} autoComplete="off" autoFocus
                  className={`${field} uppercase`} />
           <datalist id="qt-trade-symbols">
             {matches.map((m) => <option key={m.symbol} value={m.symbol}>{m.name}</option>)}
@@ -151,7 +155,7 @@ export function TradesPane() {
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
             <div className="text-dim">No trades in the ledger</div>
             <div className="max-w-xs text-[10.5px] text-dim/70">
-              Import an Upstox trade-book CSV from the ribbon, or add a trade by hand.
+              Import an Upstox, Zerodha or Groww trade report from the ribbon, or add a trade by hand.
             </div>
           </div>
         ) : (

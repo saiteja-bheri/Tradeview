@@ -22,6 +22,7 @@ class Position:
     realized_pnl: float = 0.0
     dividends: float = 0.0
     warnings: list[str] = field(default_factory=list)
+    income: list = field(default_factory=list)  # [(date, cash)] dividends and coupons, for XIRR
 
     @property
     def quantity(self) -> float:
@@ -44,6 +45,8 @@ def _day(value: date | datetime) -> date:
 def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, Position]:
     events: list[tuple] = []
     for a in actions:
+        if getattr(a, "review", "") == "skip":
+            continue  # the uploaded quantities already include this split or bonus
         events.append((_day(a.ex_date), 0, datetime.min, "action", a))
     for t in trades:
         events.append((_day(t.traded_at), 1, t.traded_at, "trade", t))
@@ -59,7 +62,10 @@ def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, 
                         lot[0] *= ev.value
                         lot[1] /= ev.value
             elif ev.kind == "dividend":
-                pos.dividends += pos.quantity * ev.value
+                cash = pos.quantity * ev.value
+                pos.dividends += cash
+                if cash > EPS:
+                    pos.income.append((_day(ev.ex_date), cash))
             continue
         if ev.side == "BUY":
             pos.lots.append([float(ev.quantity), float(ev.price)])

@@ -81,15 +81,23 @@ export function Palette() {
         </Command.Group>
         <Command.Group heading="WORKSPACE" className={group}>
           <Command.Item className={item}
-                        onSelect={run(() => document.getElementById("qt-import")?.click())}>
-            Import Upstox trade-book CSV
+                        onSelect={run(() => useStore.getState().setImportOpen(true))}>
+            Import trades (CSV or Excel, any broker)
           </Command.Item>
           <Command.Item className={item} onSelect={run(() => useStore.getState().exportCsv())}>
             Export ledger as CSV
           </Command.Item>
           <Command.Item className={item}
-                        onSelect={run(() => useStore.getState().setUpstoxOpen(true))}>
-            Connect Upstox live prices
+                        onSelect={run(() => useStore.getState().setConnectOpen(true))}>
+            Connect brokers and price sources
+          </Command.Item>
+          <Command.Item className={item}
+                        onSelect={run(() => useStore.getState().setBondsOpen(true))}>
+            Add or edit bonds
+          </Command.Item>
+          <Command.Item className={item}
+                        onSelect={run(() => useStore.getState().setReviewOpen(true))}>
+            Check splits and bonus issues against uploaded trades
           </Command.Item>
           <Command.Item className={item} onSelect={run(() => refreshPrices())}>Refresh prices</Command.Item>
           <Command.Item className={item} onSelect={run(() => resetLayout())}>Reset layout</Command.Item>

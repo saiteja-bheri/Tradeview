@@ -10,7 +10,7 @@ from typing import Protocol
 
 from fastapi import WebSocket
 
-from app.ledger.positions import EPS
+from app.ledger.positions import EPS, build_positions
 from app.quant import service
 
 BROADCAST_INTERVAL = 1.0
@@ -93,18 +93,20 @@ class LiveHub:
 
     def snapshot(self) -> dict:
         with self._sessionmaker() as session:
-            positions = service.load_positions(session)
+            trades, actions, rates, _ = service.inr_ledger(session)
+        positions = build_positions(trades, actions)
         held = {s: p for s, p in positions.items() if p.quantity > EPS}
         rows: dict[str, dict] = {}
         for symbol, pos in held.items():
             quote = self.quotes.get(symbol)
-            if not quote:
+            fx = rates.rate(symbol)      # quotes are in the listing's currency; the ledger is in INR
+            if not quote or fx is None:
                 continue
-            value = pos.quantity * quote["ltp"]
+            value = pos.quantity * quote["ltp"] * fx
             rows[symbol] = {
                 "value": value,
                 "unrealized_pnl": value - pos.cost_value,
-                "day_pnl": pos.quantity * quote["change"] if quote["change"] is not None else None,
+                "day_pnl": pos.quantity * quote["change"] * fx if quote["change"] is not None else None,
             }
         day = [r["day_pnl"] for r in rows.values() if r["day_pnl"] is not None]
         return {

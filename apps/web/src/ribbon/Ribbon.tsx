@@ -1,27 +1,30 @@
-import { useRef } from "react";
-import { feedLabel } from "../format";
+import { feedLabel, isRealtime } from "../format";
 import { useStore } from "../state/store";
 import { Seg } from "../ui";
 import { BenchmarkPicker } from "./BenchmarkPicker";
 import { SearchBox } from "./SearchBox";
+
+const CURRENCIES = ["AUTO", "INR", "USD", "EUR", "GBP", "JPY", "AED", "SGD", "AUD", "CAD", "CHF", "HKD"];
 
 export function Ribbon() {
   const status = useStore((s) => s.status);
   const busy = useStore((s) => s.busy);
   const params = useStore((s) => s.portfolio?.params);
   const setParam = useStore((s) => s.setParam);
-  const importCsv = useStore((s) => s.importCsv);
+  const setImportOpen = useStore((s) => s.setImportOpen);
+  const display = useStore((s) => s.portfolio?.display);
   const refreshPrices = useStore((s) => s.refreshPrices);
   const setPalette = useStore((s) => s.setPalette);
-  const setUpstoxOpen = useStore((s) => s.setUpstoxOpen);
+  const setConnectOpen = useStore((s) => s.setConnectOpen);
   const feed = useStore((s) => s.live?.status);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const pendingReviews = useStore((s) => s.portfolio?.pending_reviews ?? 0);
+  const setReviewOpen = useStore((s) => s.setReviewOpen);
 
   const mod = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
   const live = feed?.state === "live";
   const dot =
     status === "down" || feed?.state === "error" ? "bg-down"
-    : status === "ok" && live && feed.source === "upstox" ? "bg-up"
+    : status === "ok" && live && isRealtime(feed) ? "bg-up"
     : "bg-amber";
   const label =
     busy ? "CALC" : status === "down" ? "DOWN" : status !== "ok" ? "INIT" : feedLabel(feed);
@@ -48,30 +51,43 @@ export function Ribbon() {
       />
 
       <div className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+        {pendingReviews > 0 && (
+          <button onClick={() => setReviewOpen(true)}
+                  title="Splits or bonus issues that may already be in your uploaded trades"
+                  className="border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black">
+            CHECK SPLITS · {pendingReviews}
+          </button>
+        )}
         <button onClick={() => setPalette(true)}
                 className="border border-line px-2 py-1 text-dim hover:border-amber hover:text-ink">
           COMMANDS <span className="text-dim/60">{mod}K</span>
         </button>
-        <button onClick={() => setUpstoxOpen(true)}
+        <button onClick={() => setConnectOpen(true)}
+                title="Brokers and price sources"
                 className="border border-line px-2 py-1 text-dim hover:border-amber hover:text-ink">
-          UPSTOX
+          CONNECT
         </button>
         <button onClick={() => refreshPrices()} disabled={busy}
                 className="border border-line px-2 py-1 text-dim hover:border-amber hover:text-ink disabled:opacity-40">
           REFRESH
         </button>
-        <button onClick={() => fileRef.current?.click()}
+        <label className="flex items-center gap-1 text-[10px] tracking-widest text-dim"
+               title={display?.choice === "AUTO" ? `AUTO: showing ${display.currency}, the currency most of your portfolio is in`
+                 : "Currency money is shown in. Calculations stay in rupees."}>
+          CCY
+          <select value={params?.display_currency ?? "INR"} aria-label="Display currency"
+                  onChange={(e) => setParam({ display_currency: e.target.value })}
+                  className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber">
+            {CURRENCIES.map((c) => (
+              <option key={c} value={c}>{c === "AUTO" && display?.choice === "AUTO" ? `AUTO (${display.currency})` : c}</option>
+            ))}
+          </select>
+        </label>
+        <button onClick={() => setImportOpen(true)}
+                title="Upstox, Zerodha, Groww or any trade file (CSV or Excel)"
                 className="border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black">
-          IMPORT CSV
+          IMPORT CSV / EXCEL
         </button>
-        <input
-          id="qt-import" ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) importCsv(f);
-            e.target.value = "";
-          }}
-        />
         <span className="flex items-center gap-1.5 pl-1 text-[10px] tracking-widest text-dim"
               title={feed?.detail || `Engine ${status}`}>
           <span className={`h-2 w-2 rounded-full ${dot} ${busy ? "animate-pulse" : ""}`} />

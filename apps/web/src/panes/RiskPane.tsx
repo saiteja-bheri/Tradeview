@@ -1,4 +1,4 @@
-import { inr, num, pct, signed, ticker, tone } from "../format";
+import { ASSET_NAME, inr, num, pct, signed, ticker, tone } from "../format";
 import { useStore } from "../state/store";
 import { Empty, Flash, Seg } from "../ui";
 
@@ -46,8 +46,29 @@ export function RiskPane() {
         <Tile label="MAX DRAWDOWN" value={m?.max_drawdown} text={pct(m?.max_drawdown)} cls="text-down" />
         <Tile label="VOLATILITY (ANN.)" value={m?.volatility_annualized} text={pct(m?.volatility_annualized)} />
         <Tile label="PORTFOLIO VALUE" value={p.portfolio_value} text={inr(p.portfolio_value)} />
-        <Tile label="DIVIDENDS" value={p.dividends} text={inr(p.dividends)} />
+        <Tile label="DIVIDENDS & COUPONS" value={p.dividends} text={inr(p.dividends)} />
+        <Tile label="TOTAL RETURN" value={p.returns?.total_return}
+              text={p.returns?.total_return == null ? "—" : `${signed(p.returns.total_return)} · ${pct(p.returns.total_return_pct, 1)}`}
+              cls={tone(p.returns?.total_return)} />
+        <Tile label="XIRR (ANN.)" value={p.returns?.xirr} text={pct(p.returns?.xirr)} cls={tone(p.returns?.xirr)} />
       </div>
+
+      {(p.allocation?.length ?? 0) > 0 && (
+        <div className="border-t border-line px-3 py-3">
+          <div className="mb-2 text-[10px] tracking-widest text-dim">ALLOCATION</div>
+          {p.allocation!.map((a) => (
+            <div key={a.asset_class} className="mb-1.5 grid grid-cols-[96px_1fr_128px] items-center gap-2">
+              <span className="truncate">{ASSET_NAME[a.asset_class] ?? a.asset_class}</span>
+              <div className="h-1.5 bg-raise">
+                <div className="h-full bg-cyan" style={{ width: `${(a.weight ?? 0) * 100}%` }} />
+              </div>
+              <span className="text-right tabular-nums">
+                {pct(a.weight, 1)} <span className="text-dim">{inr(a.value)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {withVar.length > 0 && (
         <div className="border-t border-line px-3 py-3">

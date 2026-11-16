@@ -143,7 +143,8 @@ def test_saving_token_switches_feed_and_never_leaks_it(tmp_path):
     from app.secrets import MemoryStore
 
     store = MemoryStore()
-    factory = lambda s: NamedFeed("upstox" if s.get() else "yahoo-delayed")  # noqa: E731
+    factory = lambda ctx: NamedFeed(  # noqa: E731
+        "upstox" if ctx.sources["upstox"].configured() else "yahoo-delayed")
     secret = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.fake.fake"
     with TestClient(make(tmp_path, token="", token_store=store, feed_factory=factory)) as client:
         assert client.get("/api/upstox").json()["configured"] is False

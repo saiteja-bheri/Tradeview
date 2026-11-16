@@ -102,9 +102,16 @@ def test_search_finds_stocks_by_name_and_ticker(client, upstox_csv, monkeypatch)
 
     data = client.get("/api/search", params={"q": "tata motors"}).json()
     assert data["online"] is True
-    assert [r["symbol"] for r in data["results"]] == ["TATAMOTORS.NS", "TATAMOTORS.BO"]
+    # Indian listings first, then international ones (the NYSE ADR); ETFs are classified.
+    assert [r["symbol"] for r in data["results"]] == ["TATAMOTORS.NS", "TATAMOTORS.BO", "TTM", "TATAGOLD.NS"]
+    assert (data["results"][2]["market"], data["results"][2]["currency"]) == ("US", "USD")
+    assert (data["results"][0]["market"], data["results"][0]["exchange"]) == ("INDIA", "NSE")
+    us_only = client.get("/api/search", params={"q": "tata motors", "market": "US"}).json()["results"]
+    assert [r["symbol"] for r in us_only] == ["TTM"]
     assert data["results"][0] == {"symbol": "TATAMOTORS.NS", "name": "Tata Motors Limited",
-                                  "exchange": "NSE", "held": False}
+                                  "exchange": "NSE", "held": False, "asset_class": "equity",
+                                  "market": "INDIA", "currency": "INR"}
+    assert data["results"][3]["asset_class"] == "gold"
 
     client.get("/api/search", params={"q": "Tata  Motors"})
     assert calls == ["tata motors"]  # repeated query is served from the cache

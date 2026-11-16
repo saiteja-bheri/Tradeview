@@ -10,6 +10,26 @@ from app.main import create_app
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def isolated_data_dir(tmp_path, monkeypatch):
+    """Caches and instrument lists go to a temp folder, never the user's real data dir."""
+    monkeypatch.setenv("QT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("QT_FEED", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Broker, fund and BSE calls all go through app.brokers.http; tests that
+    need them replace these with fakes."""
+    from app.brokers import http
+
+    def blocked(*a, **k):
+        raise OSError("network disabled in tests")
+
+    monkeypatch.setattr(http, "get_bytes", blocked)
+    monkeypatch.setattr(http, "call", blocked)
+
+
 @pytest.fixture
 def client(tmp_path):
     app = create_app(db_url=f"sqlite:///{(tmp_path / 'test.sqlite3').as_posix()}", token="")

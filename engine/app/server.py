@@ -4,30 +4,23 @@ from __future__ import annotations
 import uvicorn
 
 from app import config
+from app.brokers.registry import FeedContext, choose_feed
 from app.main import create_app
-from app.secrets import GEMINI, UPSTOX, KeyringStore
+from app.secrets import GEMINI, UPSTOX, KeyringStore, keychain_stores
 
 
-def make_feed(store):
-    """QT_FEED = auto (default) | upstox | yahoo | off. With `auto`, Upstox is
-    used when a token is saved, otherwise delayed Yahoo quotes."""
-    choice = config.feed_choice()
-    token = store.get()
-    if choice == "off":
-        return None
-    if choice == "upstox" or (choice == "auto" and token):
-        from app.market.feeds.upstox import UpstoxFeed
-
-        return UpstoxFeed(token or "", config.data_dir())
-    from app.market.feeds.yahoo_poll import YahooPollFeed
-
-    return YahooPollFeed()
+def make_feed(ctx: FeedContext):
+    """QT_FEED = auto (default) | upstox | zerodha | groww | bse | yahoo | off
+    overrides the price source chosen under CONNECT. With `auto`, Upstox is
+    used when its token is saved, otherwise delayed Yahoo quotes."""
+    return choose_feed(ctx, config.feed_choice())
 
 
 app = create_app(
     token_store=KeyringStore(*UPSTOX),
     feed_factory=make_feed,
     gemini_store=KeyringStore(*GEMINI),
+    store_factory=keychain_stores,
 )
 
 

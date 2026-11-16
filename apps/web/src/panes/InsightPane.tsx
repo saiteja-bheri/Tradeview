@@ -9,6 +9,7 @@ const HEADINGS = ["RISK POSTURE", "KEY EXPOSURES", "HEDGING CONSIDERATIONS", "WH
  *  "Data sent"; the engine does all the maths. */
 export function InsightPane() {
   const hasMetrics = useStore((s) => s.portfolio?.metrics != null);
+  const setParam = useStore((s) => s.setParam);
   const paramsKey = useStore((s) => JSON.stringify(s.portfolio?.params ?? null));
   const [state, setState] = useState<InsightState | null>(null);
   const [memos, setMemos] = useState<Memo[]>([]);
@@ -44,9 +45,17 @@ export function InsightPane() {
   const generate = () =>
     run(async () => {
       const memo = await api.createMemo();
-      setMemos((m) => [memo, ...m]);
+      if (!memo.cached) setMemos((m) => [memo, ...m]);
       setShown(memo.id);
+      setState((s) => (s ? { ...s, next_at: memo.next_at ?? null, last_at: memo.created_at } : s));
     });
+  const setFrequency = (frequency: "hourly" | "daily") =>
+    run(async () => {
+      await setParam({ insight_frequency: frequency });
+      setState(await api.insight());
+    });
+  const waiting = state?.next_at != null && new Date(state.next_at) > new Date();
+  const nextAt = state?.next_at ? new Date(state.next_at).toLocaleString("en-IN", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : null;
 
   const memo = memos.find((m) => m.id === shown) ?? memos[0] ?? null;
   const data = showData ? (memo && shown != null ? memo.payload : preview ?? memo?.payload) : null;
@@ -54,13 +63,18 @@ export function InsightPane() {
   if (state && !state.configured) {
     return (
       <div className="space-y-3 p-3">
-        <div className="text-[10px] tracking-widest text-dim">AI INSIGHT · GOOGLE GEMINI</div>
+        <div className="text-[10px] tracking-widest text-dim">AI PORTFOLIO & WEALTH ANALYSIS · GOOGLE GEMINI</div>
         <p className="text-[11px] leading-relaxed text-dim">
-          Generates a short hedging memo from the risk figures this terminal has already computed. Gemini
-          receives only those summary figures (weights, beta, VaR, ratios), never your trades, quantities or
-          costs, and it does no calculations. Paste a Gemini API key from Google AI Studio; it is saved in
-          the system keychain.
+          Writes a short review of your portfolio risk and, when you have added cash, deposits, pension or insurance under WEALTH, your whole wealth: mix, liquidity and protection. Gemini
+          receives only summary figures (weights, beta, VaR, ratios, shares of net worth), never your trades, quantities or
+          costs, and it does no calculations.
         </p>
+        <ol className="list-decimal space-y-0.5 pl-4 text-[11px] text-dim">
+          <li>Open <span className="text-ink">aistudio.google.com/apikey</span> and create an API key (free tier available).</li>
+          <li>Paste it below and press SAVE. It is stored in the system keychain (Windows Credential Manager),
+            never in the database or the ledger file.</li>
+          <li>Or set the environment variable <span className="text-ink">QT_GEMINI_API_KEY</span> before starting the app.</li>
+        </ol>
         <form className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -89,12 +103,31 @@ export function InsightPane() {
         <div className="min-w-0 truncate text-[10px] tracking-widest text-dim">
           AI INSIGHT{state ? ` · ${state.model.toUpperCase()}` : ""}
         </div>
-        <button onClick={generate} disabled={busy || !hasMetrics || !state}
-                title={hasMetrics ? "" : "Needs risk metrics first"}
-                className="shrink-0 border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
-          {busy ? "WRITING…" : memo ? "NEW MEMO" : "GENERATE MEMO"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <div role="radiogroup" aria-label="How often a new memo may be written" className="flex"
+               title="A new memo is written at most this often; asking sooner shows the latest one and spends no Gemini tokens.">
+            {(["hourly", "daily"] as const).map((f) => (
+              <button key={f} role="radio" aria-checked={(state?.frequency ?? "hourly") === f} disabled={busy}
+                      onClick={() => setFrequency(f)}
+                      className={`-ml-px border px-1.5 py-0.5 text-[10px] tracking-widest first:ml-0 ${
+                        (state?.frequency ?? "hourly") === f ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                {f === "hourly" ? "HOURLY" : "DAILY"}
+              </button>
+            ))}
+          </div>
+          <button onClick={generate} disabled={busy || !hasMetrics || !state || waiting}
+                  title={!hasMetrics ? "Needs risk metrics first" : waiting ? `Next new memo after ${nextAt}` : ""}
+                  className="border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+            {busy ? "WRITING…" : memo ? "NEW MEMO" : "GENERATE MEMO"}
+          </button>
+        </div>
       </div>
+      {waiting && (
+        <div className="border-b border-line px-3 py-1 text-[10.5px] text-dim">
+          Latest memo is current. A new one can be written after <span className="text-ink">{nextAt}</span>
+          {" "}({state?.frequency === "daily" ? "once a day" : "once an hour"}), so no Gemini tokens are spent until then.
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
         {error && <div role="alert" className="mb-3 text-down">{error}</div>}

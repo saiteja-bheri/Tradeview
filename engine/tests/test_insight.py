@@ -74,7 +74,8 @@ def test_memo_flow_sends_only_the_risk_payload(insight):
     client, calls = insight
     assert client.post("/api/insight/memo").status_code == 409            # no key yet
     assert client.put("/api/insight/key", json={"key": KEY}).json() == {
-        "configured": True, "source": "memory", "model": "gemini-3.8-flash"}
+        "configured": True, "source": "memory", "model": "gemini-3.8-flash",
+        "frequency": "hourly", "last_at": None, "next_at": None}
     assert client.get("/api/insight/preview").status_code == 409          # no prices yet
     client.get("/api/metrics")                                            # loads (fake) prices
 
@@ -90,6 +91,34 @@ def test_memo_flow_sends_only_the_risk_payload(insight):
 
     history_rows = client.get("/api/insight/memos").json()
     assert len(history_rows) == 1 and history_rows[0]["text"] == body["text"]
+    assert body["cached"] is False and body["next_at"] is not None
+
+
+def test_memo_is_generated_at_most_once_per_window(insight):
+    from datetime import datetime, timedelta
+
+    from app.db.models import Memo
+
+    client, calls = insight
+    client.put("/api/insight/key", json={"key": KEY})
+    client.get("/api/metrics")
+    first = client.post("/api/insight/memo").json()
+    again = client.post("/api/insight/memo").json()
+    assert len(calls) == 1                                                # Gemini called once
+    assert again["cached"] is True and again["id"] == first["id"]
+    state = client.get("/api/insight").json()
+    assert state["frequency"] == "hourly" and state["next_at"] == again["next_at"]
+
+    client.put("/api/settings", json={"insight_frequency": "daily"})
+    with client.app.state.sessionmaker() as s:                            # two hours later
+        m = s.get(Memo, first["id"])
+        m.created_at = datetime.now() - timedelta(hours=2)
+        s.commit()
+    assert client.post("/api/insight/memo").json()["cached"] is True      # daily: still waiting
+    client.put("/api/settings", json={"insight_frequency": "hourly"})
+    assert client.post("/api/insight/memo").json()["cached"] is False     # hourly: due again
+    assert len(calls) == 2
+    assert client.put("/api/settings", json={"insight_frequency": "weekly"}).status_code == 400
 
 
 def test_bad_key_is_reported_and_nothing_is_stored(insight):

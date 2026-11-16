@@ -54,3 +54,15 @@ export function Seg<T extends string | number>({
     </div>
   );
 }
+
+/** Eye icon for "watch": outlined when off, filled when on. */
+export function EyeIcon({ on, className = "" }: { on: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" className={`inline-block h-3.5 w-3.5 align-[-2px] ${className}`}>
+      <path d="M1 8s2.6-4.5 7-4.5S15 8 15 8s-2.6 4.5-7 4.5S1 8 1 8Z" fill={on ? "currentColor" : "none"}
+            stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="2" fill={on ? "var(--color-panel)" : "none"} stroke={on ? "var(--color-panel)" : "currentColor"}
+              strokeWidth="1.3" />
+    </svg>
+  );
+}

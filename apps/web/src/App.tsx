@@ -2,7 +2,10 @@ import { useEffect } from "react";
 import { Workspace } from "./layout/Workspace";
 import { Palette } from "./ribbon/Palette";
 import { Ribbon } from "./ribbon/Ribbon";
-import { UpstoxDialog } from "./ribbon/UpstoxDialog";
+import { BondsDialog } from "./ribbon/BondsDialog";
+import { ConnectionsDialog } from "./ribbon/ConnectionsDialog";
+import { ImportDialog } from "./ribbon/ImportDialog";
+import { ReviewDialog } from "./ribbon/ReviewDialog";
 import { useStore } from "./state/store";
 
 export function App() {
@@ -35,7 +38,10 @@ export function App() {
       )}
       <Workspace />
       <Palette />
-      <UpstoxDialog />
+      <ConnectionsDialog />
+      <BondsDialog />
+      <ReviewDialog />
+      <ImportDialog />
     </div>
   );
 }

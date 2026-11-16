@@ -12,6 +12,8 @@ from datetime import datetime
 
 import pandas as pd
 
+from app.market import symbols
+
 BROKER = "upstox"
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -27,7 +29,10 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "price": ("price", "trade price", "rate"),
     # Written by this app's own export so an edited file updates rows instead of duplicating them.
     "ledger_id": ("ledger id",),
+    "source": ("source",),
+    "isin": ("isin",),
 }
+KNOWN_BROKERS = ("upstox", "zerodha", "groww", "manual")
 REQUIRED = ("date", "scrip", "side", "qty", "price")
 NON_EQUITY_MARKERS = ("FO", "FUT", "OPT", "CD", "COM", "CURR", "MCX")
 SUFFIX = {"NSE": ".NS", "BSE": ".BO"}
@@ -45,6 +50,8 @@ class ParsedTrade:
     price: float
     traded_at: datetime
     from_export: bool = False
+    broker: str = BROKER
+    isin: str = ""
 
 
 @dataclass
@@ -67,11 +74,11 @@ def _find_header(lines: list[str]) -> int:
 
 
 def _num(value: object) -> float:
-    return float(str(value).replace(",", "").replace("₹", "").strip())
+    return float(str(value).replace(",", "").replace("â‚¹", "").strip())
 
 
 def to_yahoo_symbol(scrip: str, exchange: str) -> str:
-    return f"{scrip.strip().upper()}{SUFFIX.get(exchange.strip().upper(), '.NS')}"
+    return symbols.to_yahoo(scrip, exchange)
 
 
 def parse(content: bytes | str) -> ParseResult:
@@ -127,6 +134,8 @@ def parse(content: bytes | str) -> ParseResult:
             else:
                 raw = f"{stamp}|{exchange}|{scrip}|{side}|{qty}|{price}|{n}"
                 trade_id = "h:" + hashlib.sha1(raw.encode()).hexdigest()[:20]
+            source = get("source").lower()
+            broker = source if ledger_id and source in KNOWN_BROKERS else BROKER
             result.trades.append(
                 ParsedTrade(
                     trade_id=trade_id,
@@ -139,6 +148,8 @@ def parse(content: bytes | str) -> ParseResult:
                     price=price,
                     traded_at=traded_at,
                     from_export=bool(ledger_id),
+                    broker=broker,
+                    isin=get("isin").upper(),
                 )
             )
         except Exception as exc:  # one bad row must not sink the whole import
@@ -157,6 +168,8 @@ def export_rows(trades, names: dict[str, str]) -> list[dict]:
     for t in trades:
         scrip, _, suffix = t.symbol.rpartition(".")
         exchange = {"NS": "NSE", "BO": "BSE"}.get(suffix, "NSE")
+        if symbols.is_international(t.symbol) or symbols.namespace(t.symbol):
+            scrip, exchange = t.symbol, "INTL"   # read back unchanged
         parts = t.trade_id.split(":")
         rows.append({
             "Date": t.traded_at.strftime("%d-%m-%Y"),

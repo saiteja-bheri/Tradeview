@@ -4,11 +4,24 @@ database, logs or API responses. An environment variable overrides the store."""
 from __future__ import annotations
 
 import os
-from typing import Protocol
+from typing import Callable, Protocol
 
 SERVICE = "QuantTerminal"
 UPSTOX = ("upstox-token", ("QT_UPSTOX_TOKEN", "QT_UPSTOX_ACCESS_TOKEN"))
 GEMINI = ("gemini-api-key", ("QT_GEMINI_API_KEY", "GEMINI_API_KEY"))
+
+# One keychain entry per credential field: {field: (account, environment overrides)}.
+ZERODHA = {
+    "api_key": ("zerodha-api-key", ("QT_ZERODHA_API_KEY",)),
+    "api_secret": ("zerodha-api-secret", ("QT_ZERODHA_API_SECRET",)),
+    "access_token": ("zerodha-access-token", ("QT_ZERODHA_ACCESS_TOKEN",)),
+}
+GROWW = {
+    "api_key": ("groww-api-key", ("QT_GROWW_API_KEY",)),
+    "api_secret": ("groww-api-secret", ("QT_GROWW_API_SECRET",)),
+    "totp_secret": ("groww-totp-secret", ("QT_GROWW_TOTP_SECRET",)),
+    "access_token": ("groww-access-token", ("QT_GROWW_ACCESS_TOKEN",)),
+}
 
 
 class TokenStore(Protocol):
@@ -80,3 +93,18 @@ class MemoryStore:
 
     def clear(self) -> None:
         self._token = None
+
+
+StoreFactory = Callable[[str, tuple[str, ...]], TokenStore]
+
+
+def keychain_stores(account: str, env_names: tuple[str, ...] = ()) -> TokenStore:
+    return KeyringStore(account, env_names)
+
+
+def memory_stores(account: str, env_names: tuple[str, ...] = ()) -> TokenStore:
+    return MemoryStore()
+
+
+def credential_set(fields: dict[str, tuple[str, tuple[str, ...]]], factory: StoreFactory) -> dict[str, TokenStore]:
+    return {name: factory(account, envs) for name, (account, envs) in fields.items()}

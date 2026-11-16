@@ -8,12 +8,12 @@ import io
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,10 +21,13 @@ from sqlalchemy.orm import Session
 from app import config
 from app.ai import memo as memo_ai
 from app.ai.gemini import InsightError
-from app.db.models import CorporateAction, Instrument, Memo, Trade
-from app.ledger import upstox
+from app.db.models import Bond, CorporateAction, Instrument, Memo, Trade, WealthItem
+from app.ledger import detect, ingest, mapping, table, upstox
+from app.market import commodities, symbols
 from app.market import search as market_search
+from app.market.live import LiveHub
 from app.quant import service
+from app.quant import wealth as wealth_math
 
 
 def get_session(request: Request):
@@ -56,6 +59,8 @@ class SettingsIn(BaseModel):
     horizon_days: int | None = None
     lookback_days: int | None = None
     risk_free_rate: float | None = None
+    display_currency: str | None = None
+    insight_frequency: str | None = None
 
 
 class ActionIn(BaseModel):
@@ -74,19 +79,42 @@ class TradeIn(BaseModel):
     price: float = Field(gt=0)
     traded_at: datetime
     name: str | None = Field(default=None, max_length=120)
+    # "INTL" when the symbol was picked from an international search result (AAPL),
+    # so a bare ticker is not turned into an NSE one. Price is in that listing's currency.
+    market: Literal["IN", "INTL"] | None = None
 
 
 _LEDGER_SYMBOL = re.compile(r"^[A-Z0-9&_-]{1,30}\.(NS|BO)$")
 
 
-def _ledger_symbol(raw: str) -> str:
+def _ledger_symbol(raw: str, session: Session | None = None, market: str | None = None) -> str:
     symbol = raw.strip().upper()
+    ns = symbols.namespace(symbol)
+    if ns:
+        if not symbols.is_namespaced(symbol):
+            raise HTTPException(status_code=400, detail="Use MF:<scheme code>, CMDTY:<name> or BOND:<id>")
+        if ns == "CMDTY" and symbols_commodity_unknown(symbol):
+            raise HTTPException(status_code=400, detail="Unknown commodity. Choose from "
+                                + ", ".join(f"CMDTY:{c}" for c in commodities.COMMODITIES))
+        if ns == "BOND" and session is not None and session.get(Bond, symbol) is None:
+            raise HTTPException(status_code=400, detail=f"Add the terms for {symbol} under BONDS first")
+        return symbol
+    known_intl = session is not None and session.get(Instrument, symbol) is not None
+    if symbols.is_international(symbol) and (market == "INTL" or known_intl or (
+            "." in symbol and not symbols.is_indian(symbol))):
+        return symbol
     if "." not in symbol:
         symbol += ".NS"
     if not _LEDGER_SYMBOL.match(symbol):
         raise HTTPException(status_code=400,
-                            detail="Symbol must be an NSE or BSE ticker, e.g. RELIANCE or RELIANCE.BO")
+                            detail="Symbol must be an NSE or BSE ticker (RELIANCE, RELIANCE.BO), an "
+                                   "international listing picked from search (AAPL, VOD.L), a fund "
+                                   "(MF:122639), a commodity (CMDTY:GOLD) or a bond (BOND:GOI2033)")
     return symbol
+
+
+def symbols_commodity_unknown(symbol: str) -> bool:
+    return commodities.name_of(symbol) not in commodities.COMMODITIES
 
 
 def _trade_json(t: Trade, names: dict[str, str]) -> dict:
@@ -100,14 +128,7 @@ def _names(session: Session) -> dict[str, str]:
 
 
 def _remember_instrument(session: Session, symbol: str, name: str | None) -> None:
-    known = session.get(Instrument, symbol)
-    if known is None:
-        scrip, _, suffix = symbol.rpartition(".")
-        session.add(Instrument(symbol=symbol, name=(name or "").strip(),
-                               exchange="BSE" if suffix == "BO" else "NSE", scrip_code=scrip))
-        session.flush()
-    elif name and not known.name:
-        known.name = name.strip()
+    ingest.remember_instrument(session, symbol, name)
 
 
 class UpstoxTokenIn(BaseModel):
@@ -123,11 +144,21 @@ def _upstox_state(request: Request) -> dict:
     }
 
 
-async def _restart_feed(request: Request) -> None:
-    app = request.app
-    feed = await asyncio.to_thread(app.state.feed_factory, app.state.token_store)
-    if app.state.hub is not None and feed is not None:
+async def restart_feed(app) -> None:
+    """Rebuilds the price feed after credentials, a login or the chosen source change."""
+    ctx = await asyncio.to_thread(app.state.feed_context)
+    feed = await asyncio.to_thread(app.state.feed_factory, ctx)
+    if feed is None:
+        return
+    if app.state.hub is None:
+        app.state.hub = LiveHub(app.state.sessionmaker, feed)
+        await app.state.hub.start()
+    else:
         await app.state.hub.set_feed(feed)
+
+
+async def _restart_feed(request: Request) -> None:
+    await restart_feed(request.app)
 
 
 @router.get("/upstox")
@@ -157,40 +188,87 @@ async def remove_upstox_token(request: Request):
     return await asyncio.to_thread(_upstox_state, request)
 
 
-@router.post("/ledger/import")
-async def import_ledger(request: Request, file: UploadFile = File(...),
-                        session: Session = Depends(get_session)):
+@router.get("/ledger/import/formats")
+def import_formats():
+    """The headings each supported file needs, for the import page."""
+    return mapping.formats()
+
+
+@router.get("/ledger/import/template")
+def import_template():
+    return Response(content=mapping.template_csv(), media_type="text/csv",
+                    headers={"Content-Disposition": 'attachment; filename="trades-template.csv"'})
+
+
+def _preview(content: bytes) -> dict:
+    rows = table.read_rows(content)
+    if not rows:
+        raise ValueError("The file is empty")
+    broker = detect.detect(content)
+    out = mapping.guess(rows)
+    out["missing"] = mapping.missing(out["mapping"])
+    out["broker"] = broker
+    if broker == "upstox":       # not a Zerodha or Groww layout: is it really Upstox's?
+        try:
+            upstox.parse(detect.to_csv(content))
+        except ValueError:
+            out["broker"] = "generic"
+    out["fields"] = [{"field": f, "label": spec[0], "required": spec[1], "format": spec[3]}
+                     for f, spec in mapping.FIELDS.items()]
+    return out
+
+
+@router.post("/ledger/import/preview")
+async def import_preview(file: UploadFile = File(...)):
+    """What the file looks like: broker, heading row, each field's column and sample rows."""
+    content = await file.read()
     try:
-        parsed = upstox.parse(await file.read())
+        return await asyncio.to_thread(_preview, content)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    existing = {t.trade_id: t for t in session.scalars(select(Trade))}
-    imported = duplicates = updated = 0
-    for t in parsed.trades:
-        known = existing.get(t.trade_id)
-        if known is not None:
-            # Rows from this app's own export carry their ledger id: apply edits made in the file.
-            new = (t.symbol, t.side, t.quantity, t.price, t.traded_at)
-            old = (known.symbol, known.side, known.quantity, known.price, known.traded_at)
-            if t.from_export and new != old:
-                known.symbol, known.side, known.quantity, known.price, known.traded_at = new
-                _remember_instrument(session, t.symbol, t.name)
-                updated += 1
-            else:
-                duplicates += 1
-            continue
-        row = Trade(broker="manual" if t.trade_id.startswith("m:") else upstox.BROKER,
-                    trade_id=t.trade_id, symbol=t.symbol, side=t.side,
-                    quantity=t.quantity, price=t.price, traded_at=t.traded_at)
-        session.add(row)
-        existing[t.trade_id] = row
-        _remember_instrument(session, t.symbol, t.name)
-        imported += 1
+
+@router.post("/ledger/import")
+async def import_ledger(request: Request, file: UploadFile = File(...),
+                        broker: str = Query("auto", pattern="^(auto|upstox|zerodha|groww|generic)$"),
+                        columns: str | None = Form(default=None, description="JSON {field: heading} chosen by the user"),
+                        header_row: int | None = Form(default=None),
+                        session: Session = Depends(get_session)):
+    """Reads an Upstox, Zerodha or Groww report or any trade file (CSV or Excel).
+    The broker is recognised from the headings. A file in another layout is read
+    through a column mapping: matched automatically from its headings, or given
+    in `columns` when the user chose the columns in the import dialog."""
+    content = await file.read()
+
+    def run():
+        if columns or broker == "generic":
+            rows = table.read_rows(content)
+            chosen = json.loads(columns) if columns else None
+            head = header_row if header_row is not None else mapping.find_header(rows)
+            chosen = chosen or mapping.guess(rows, head)["mapping"]
+            return "generic", mapping.parse(rows, chosen, head)
+        try:
+            return detect.parse(content, broker)
+        except ValueError as first:
+            if broker != "auto":
+                raise
+            rows = table.read_rows(content)
+            head = mapping.find_header(rows)
+            guessed = mapping.guess(rows, head)["mapping"]
+            if mapping.missing(guessed):
+                raise ValueError(f"{first}. Choose the columns in the import dialog.") from first
+            return "generic", mapping.parse(rows, guessed, head)
+
+    try:
+        source, parsed = await asyncio.to_thread(run)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = ingest.store_trades(session, parsed.trades)
     session.commit()
     _poke(request)
-    return {"imported": imported, "duplicates": duplicates, "updated": updated,
-            "skipped": parsed.skipped}
+    return {"broker": source, "imported": result.imported, "duplicates": result.duplicates,
+            "updated": result.updated, "skipped": parsed.skipped}
 
 
 @router.get("/ledger/trades")
@@ -203,10 +281,11 @@ def list_trades(session: Session = Depends(get_session)):
 @router.post("/ledger/trades", status_code=201)
 def record_trade(body: TradeIn, request: Request, session: Session = Depends(get_session)):
     """Records a trade that already happened at a broker. Local bookkeeping only."""
-    symbol = _ledger_symbol(body.symbol)
+    symbol = _ledger_symbol(body.symbol, session, body.market)
     trade = Trade(broker="manual", trade_id=f"m:{uuid.uuid4().hex}", symbol=symbol, side=body.side,
                   quantity=body.quantity, price=body.price,
-                  traded_at=body.traded_at.replace(tzinfo=None))
+                  traded_at=body.traded_at.replace(tzinfo=None),
+                  imported_at=datetime.now().replace(microsecond=0))
     session.add(trade)
     _remember_instrument(session, symbol, body.name)
     session.commit()
@@ -221,7 +300,7 @@ def amend_trade(trade_id: int, body: TradeIn, request: Request,
     trade = session.get(Trade, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="No such trade in the ledger")
-    trade.symbol = _ledger_symbol(body.symbol)
+    trade.symbol = _ledger_symbol(body.symbol, session, body.market)
     trade.side, trade.quantity, trade.price = body.side, body.quantity, body.price
     trade.traded_at = body.traded_at.replace(tzinfo=None)
     _remember_instrument(session, trade.symbol, body.name)
@@ -270,10 +349,12 @@ def holdings(session: Session = Depends(get_session)):
 
 
 @router.get("/search")
-def search_stocks(q: str = Query("", max_length=64), limit: int = Query(10, ge=1, le=25),
+def search_stocks(q: str = Query("", max_length=64), limit: int = Query(12, ge=1, le=25),
+                  market: str = Query("ALL", pattern="^(ALL|INDIA|US|UK|EUROPE|ASIA|AMERICAS|PACIFIC|FUNDS)$"),
                   session: Session = Depends(get_session)):
-    """Find a stock by company name or ticker: ledger instruments plus NSE/BSE listings."""
-    return market_search.search(session, q, limit)
+    """Find a stock by company name or ticker on any market, each result tagged
+    with its market, exchange and currency. `market` narrows the search."""
+    return market_search.search(session, q, limit, market=market)
 
 
 @router.get("/metrics")
@@ -322,7 +403,7 @@ def list_actions(symbol: str | None = None, session: Session = Depends(get_sessi
         query = query.where(CorporateAction.symbol == symbol)
     return [
         {"id": a.id, "symbol": a.symbol, "ex_date": a.ex_date.isoformat(), "kind": a.kind,
-         "value": a.value, "source": a.source}
+         "value": a.value, "source": a.source, "review": a.review}
         for a in session.scalars(query)
     ]
 
@@ -358,15 +439,28 @@ class ApiKeyIn(BaseModel):
     key: str = Field(min_length=20, max_length=512)
 
 
+def _memo_window(session: Session) -> tuple[str, Memo | None, datetime | None]:
+    """(frequency, latest memo, when the next new memo may be generated)."""
+    frequency = service.get_settings(session)["insight_frequency"]
+    latest = session.scalars(select(Memo).order_by(Memo.created_at.desc()).limit(1)).first()
+    next_at = latest.created_at + timedelta(seconds=config.INSIGHT_WINDOWS[frequency]) if latest else None
+    return frequency, latest, next_at if next_at and next_at > datetime.now() else None
+
+
 def _insight_state(request: Request) -> dict:
     store = request.app.state.gemini_store
+    with request.app.state.sessionmaker() as session:
+        frequency, latest, next_at = _memo_window(session)
     return {"configured": store.get() is not None, "source": store.source(),
-            "model": config.gemini_model()}
+            "model": config.gemini_model(), "frequency": frequency,
+            "last_at": latest.created_at.isoformat() if latest else None,
+            "next_at": next_at.isoformat() if next_at else None}
 
 
-def _memo_json(m: Memo) -> dict:
+def _memo_json(m: Memo, cached: bool = False, next_at: datetime | None = None) -> dict:
     return {"id": m.id, "created_at": m.created_at.isoformat(), "model": m.model, "text": m.text,
-            "payload": json.loads(m.payload), "unverified_numbers": json.loads(m.unverified)}
+            "payload": json.loads(m.payload), "unverified_numbers": json.loads(m.unverified),
+            "cached": cached, "next_at": next_at.isoformat() if next_at else None}
 
 
 @router.get("/insight")
@@ -392,13 +486,24 @@ def remove_insight_key(request: Request):
     return _insight_state(request)
 
 
+def _wealth_for_ai(session: Session, data: dict) -> dict:
+    by_class: dict[str, float] = {}
+    for h in data["holdings"]:
+        if h.get("value"):
+            by_class[h.get("asset_class") or "equity"] = by_class.get(h.get("asset_class") or "equity", 0.0) + h["value"]
+    from app.quant import cashflow
+
+    return wealth_math.summary(session.scalars(select(WealthItem)).all(), data["portfolio_value"] or 0.0, by_class,
+                               cashflow.balance(session)["balance"])
+
+
 @router.get("/insight/preview")
 def insight_preview(session: Session = Depends(get_session)):
     """Exactly what would be sent to the model, so the user can inspect it first."""
     data = service.compute(session, refresh=False)
     if not data["metrics"]:
         raise HTTPException(status_code=409, detail="No risk metrics yet. Import trades and refresh prices first.")
-    return memo_ai.build_payload(data)
+    return memo_ai.build_payload(data, _wealth_for_ai(session, data))
 
 
 @router.post("/insight/memo")
@@ -407,10 +512,15 @@ def create_memo(request: Request, session: Session = Depends(get_session)):
     api_key = request.app.state.gemini_store.get()
     if not api_key:
         raise HTTPException(status_code=409, detail="No Gemini API key saved.")
+    # At most one new memo per hour (or per day): inside the window, the latest
+    # memo is returned again and Gemini is not called.
+    _, latest, next_at = _memo_window(session)
+    if latest is not None and next_at is not None:
+        return _memo_json(latest, cached=True, next_at=next_at)
     data = service.compute(session, refresh=False)
     if not data["metrics"]:
         raise HTTPException(status_code=409, detail="No risk metrics yet. Import trades and refresh prices first.")
-    payload = memo_ai.build_payload(data)
+    payload = memo_ai.build_payload(data, _wealth_for_ai(session, data))
     model = config.gemini_model()
     try:
         text = request.app.state.memo_generator(api_key, model, memo_ai.SYSTEM_INSTRUCTION, payload)
@@ -420,7 +530,7 @@ def create_memo(request: Request, session: Session = Depends(get_session)):
                unverified=json.dumps(memo_ai.unverified_numbers(text, payload)))
     session.add(row)
     session.commit()
-    return _memo_json(row)
+    return _memo_json(row, next_at=_memo_window(session)[2])
 
 
 @router.get("/insight/memos")
