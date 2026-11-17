@@ -17,7 +17,7 @@ export function HoldingsPane() {
   const value = full ? lp.value : portfolio?.portfolio_value;
   const unrealized = full ? lp.unrealized_pnl : portfolio?.unrealized_pnl;
   if (!rows.length)
-    return <Empty title="No holdings yet" hint="Import an Upstox, Zerodha or Groww trade report from the ribbon to build the ledger." />;
+    return <Empty title="No holdings yet" hint="Import an Upstox, Zerodha or Groww trade report with IMPORT in the top bar to build the ledger." />;
 
   return (
     <div className="flex h-full flex-col">
@@ -50,11 +50,11 @@ export function HoldingsPane() {
                 onClick={() => select(h.symbol)}
                 className={`cursor-pointer hover:bg-raise ${h.symbol === selected ? "bg-raise" : ""}`}
               >
-                <td className={`l font-semibold ${h.symbol === selected ? "text-amber" : "text-cyan"}`}
+                <td className={`l font-semibold ${h.symbol === selected ? "text-accent" : "text-cyan"}`}
                     title={h.name || undefined}>
                   <button onClick={(e) => { e.stopPropagation(); toggleStar(h.symbol, h.name); }}
                           aria-label={starred.has(h.symbol) ? `Unstar ${h.symbol}` : `Star ${h.symbol}`}
-                          className={`mr-1 font-normal ${starred.has(h.symbol) ? "text-amber" : "text-dim/40 hover:text-amber"}`}>
+                          className={`mr-1 font-normal ${starred.has(h.symbol) ? "text-accent" : "text-dim/40 hover:text-accent"}`}>
                     {starred.has(h.symbol) ? "★" : "☆"}
                   </button>
                   {ticker(h.symbol)}

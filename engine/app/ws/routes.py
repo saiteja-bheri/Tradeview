@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 router = APIRouter()
@@ -10,7 +12,7 @@ async def ticks(ws: WebSocket, token: str = ""):
     """Streams live quote and mark-to-market snapshots. Browsers cannot set
     headers on a WebSocket, so the session token travels as a query parameter."""
     expected = ws.app.state.token
-    if expected and token != expected:
+    if expected and not hmac.compare_digest(token.encode(), expected.encode()):
         await ws.close(code=4401)
         return
     await ws.accept()

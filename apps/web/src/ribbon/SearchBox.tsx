@@ -151,8 +151,8 @@ export function SearchBox() {
     : null;
 
   return (
-    <div className="relative min-w-40 max-w-72 flex-1">
-      <div className="flex items-center border border-line bg-bg focus-within:border-amber">
+    <div className="relative w-[340px] min-w-48 max-w-[34vw] shrink">
+      <div className="flex items-center border border-line bg-bg focus-within:border-accent">
         <svg viewBox="0 0 16 16" aria-hidden="true" className="ml-2 h-3 w-3 shrink-0 text-dim">
           <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -173,19 +173,19 @@ export function SearchBox() {
           aria-activedescendant={show && results[active] ? `qt-search-${active}` : undefined}
           spellCheck={false}
           autoComplete="off"
-          className="min-w-0 flex-1 bg-transparent px-2 py-1 text-amber outline-none placeholder:text-dim/60"
+          className="min-w-0 flex-1 bg-transparent px-2 py-1 text-accent outline-none placeholder:text-dim/60"
         />
         {market !== "ALL" && <span className="mr-1 text-[9px] tracking-widest text-dim">{market}</span>}
         {!q && <kbd className="mr-1.5 border border-line px-1 text-[10px] text-dim/70">/</kbd>}
       </div>
 
       {show && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-[30rem] max-w-[92vw] border border-amber bg-panel shadow-2xl">
+        <div className="absolute left-0 top-full z-30 mt-1 w-[30rem] max-w-[92vw] border border-accent bg-panel shadow-2xl">
           <div role="radiogroup" aria-label="Market" className="flex flex-wrap gap-1 border-b border-line px-2 py-1.5">
             {MARKETS.map((m) => (
               <button key={m} type="button" role="radio" aria-checked={market === m}
                       onMouseDown={(e) => { e.preventDefault(); setMarket(m); }}
-                      className={`px-1.5 py-0.5 text-[10px] tracking-widest ${market === m ? "bg-amber text-black" : "text-dim hover:text-ink"}`}>
+                      className={`px-1.5 py-0.5 text-[10px] tracking-widest ${market === m ? "bg-accent text-black" : "text-dim hover:text-ink"}`}>
                 {m}
               </button>
             ))}
@@ -212,13 +212,13 @@ export function SearchBox() {
                       aria-selected={on}
                       onMouseDown={(e) => { e.preventDefault(); pick(r.symbol); }}
                       onMouseMove={() => setActive(i)}
-                      className={`flex cursor-pointer items-center gap-3 px-3 py-1.5 ${on ? "bg-amber text-black" : ""}`}
+                      className={`flex cursor-pointer items-center gap-3 px-3 py-1.5 ${on ? "bg-accent text-black" : ""}`}
                     >
                       <span className="min-w-0 flex-1 truncate">{r.name || ticker(r.symbol)}</span>
                       {r.held && (
                         <span className={`text-[10px] tracking-widest ${on ? "text-black/70" : "text-up"}`}>HELD</span>
                       )}
-                      <span className={`shrink-0 ${on ? "text-black" : "text-amber"}`}>{ticker(r.symbol)}</span>
+                      <span className={`shrink-0 ${on ? "text-black" : "text-accent"}`}>{ticker(r.symbol)}</span>
                       <span className={`w-24 shrink-0 truncate text-right text-[10px] tracking-wider ${on ? "text-black/70" : "text-dim"}`}
                             title={`${r.exchange}${r.currency ? ` · priced in ${r.currency}` : ""}`}>
                         {r.exchange === "CMDTY" ? "CMD" : r.exchange}{r.currency ? ` · ${r.currency}` : ""}
@@ -233,7 +233,7 @@ export function SearchBox() {
                       <button type="button" title={starredSet.has(r.symbol) ? "Starred for the optimizer" : "Star for the optimizer"}
                               onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); toggleStar(r.symbol, r.name); }}
                               aria-label={starredSet.has(r.symbol) ? `Unstar ${r.symbol}` : `Star ${r.symbol}`}
-                              className={`shrink-0 ${starredSet.has(r.symbol) ? (on ? "text-black" : "text-amber") : (on ? "text-black/60" : "text-dim hover:text-amber")}`}>
+                              className={`shrink-0 ${starredSet.has(r.symbol) ? (on ? "text-black" : "text-accent") : (on ? "text-black/60" : "text-dim hover:text-accent")}`}>
                         {starredSet.has(r.symbol) ? "★" : "☆"}
                       </button>
                     </div>

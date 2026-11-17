@@ -1,6 +1,8 @@
 /** Yahoo symbol -> TradingView symbol, so each chart opens on the stock's own exchange.
  *
- *  Indian listings use BSE because TradingView's free embed carries BSE but not NSE data.
+ *  NSE listings map to NSE, which TradingView's free embed has no data for, so they are
+ *  drawn from Yahoo's NSE prices; bseListing() offers the same company's BSE listing as an
+ *  optional, clearly labelled TradingView view.
  *  US tickers use the exchange the search reported (NASDAQ, NYSE...) when known, otherwise
  *  the bare ticker, which TradingView resolves to the primary US listing. */
 
@@ -47,7 +49,8 @@ export function tradingViewSymbol(symbol: string, exchange?: string): string {
   const dot = s.lastIndexOf(".");
   const base = dot > 0 ? s.slice(0, dot) : s;
   const suffix = dot > 0 ? s.slice(dot + 1) : "";
-  if (suffix === "NS" || suffix === "BO") return `BSE:${base}`;
+  if (suffix === "NS") return `NSE:${base}`;
+  if (suffix === "BO") return `BSE:${base}`;
   if (suffix && SUFFIX[suffix]) {
     // Hong Kong codes are zero-padded on Yahoo (0700.HK) but not on TradingView (HKEX:700).
     const code = suffix === "HK" ? base.replace(/^0+(?=\d)/, "") : base;
@@ -57,4 +60,11 @@ export function tradingViewSymbol(symbol: string, exchange?: string): string {
   const us = base.replace(/-(?=[A-Z]$)/, ".");
   const prefix = exchange ? US_EXCHANGE[exchange.toUpperCase()] : undefined;
   return prefix ? `${prefix}:${us}` : us;
+}
+
+/** The BSE listing of an NSE stock (PNB.NS -> BSE:PNB), for TradingView, which has
+ *  no NSE data. Same company, but a different exchange's prices. */
+export function bseListing(symbol: string): string | null {
+  const s = symbol.toUpperCase();
+  return s.endsWith(".NS") ? `BSE:${s.slice(0, -3)}` : null;
 }

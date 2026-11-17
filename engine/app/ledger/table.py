@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import zipfile
 from datetime import date, datetime
 from typing import Iterable
 
@@ -27,6 +28,7 @@ def _cell(value: object) -> str:
 
 
 UNREADABLE = "This file could not be read as a CSV or Excel (.xlsx) report"
+MAX_UNPACKED_BYTES = 200 * 1024 * 1024
 
 
 def open_workbook(content: bytes):
@@ -36,6 +38,15 @@ def open_workbook(content: bytes):
         from openpyxl import load_workbook
     except ImportError as exc:  # pragma: no cover - dependency is declared
         raise ValueError("Reading Excel reports needs the openpyxl package") from exc
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            unpacked = sum(i.file_size for i in z.infolist())
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"{UNREADABLE}: the Excel file is damaged or not really .xlsx") from exc
+    if unpacked > MAX_UNPACKED_BYTES:
+        # A small .xlsx can expand to gigabytes (a "zip bomb") and exhaust memory.
+        raise ValueError(f"{UNREADABLE}: it would unpack to {unpacked // (1024 * 1024)} MB, "
+                         f"over the {MAX_UNPACKED_BYTES // (1024 * 1024)} MB limit")
     try:
         return load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:  # BadZipFile, KeyError, InvalidFileException, XML errors...

@@ -67,7 +67,7 @@ Interactive API docs: http://127.0.0.1:8765/docs
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `QT_PORT` | engine port | `8765` |
-| `QT_TOKEN` | if set, every `/api` call must send it as `X-QT-Token` | unset |
+| `QT_TOKEN` | if set, every `/api` call must send it as `X-QT-Token`; if unset, only pages served from this computer (`http://localhost`, `http://127.0.0.1`) may call the engine from a browser | unset |
 | `QT_DATA_DIR` | where the SQLite ledger lives | per-user app data folder |
 | `QT_FEED` | live prices: `auto`, `upstox`, `yahoo` or `off` | `auto` |
 | `QT_UPSTOX_TOKEN` | Upstox token; overrides the one saved in the app | unset |

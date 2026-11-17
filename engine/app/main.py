@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import math
+import re
 from contextlib import asynccontextmanager
 from typing import Callable
 
@@ -22,6 +25,104 @@ from app.db.models import Instrument, Setting, make_sessionmaker
 from app.market.live import Feed, LiveHub
 from app.secrets import MemoryStore, StoreFactory, TokenStore, memory_stores
 from app.ws.routes import router as ws_router
+
+
+LOCAL_ORIGIN = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
+# "testserver" is the Host header of FastAPI's test client.
+LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "testserver"})
+
+
+class LocalOnly:
+    """Refuses requests a web page could forge (HTTP and WebSocket alike):
+
+    - a Host other than this machine, which stops DNS rebinding, where a site's
+      own domain is pointed at 127.0.0.1 so its pages count as same-origin;
+    - when the engine runs without a session token, a request whose Origin is
+      not a page on this machine. Browsers attach Origin to every cross-site
+      request, including form posts and WebSockets that CORS never checks."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in ("http", "websocket"):
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        host = headers.get("host", "").rsplit(":", 1)[0].strip("[]").lower()
+        origin = headers.get("origin")
+        locked = not scope["app"].state.token if "app" in scope else True
+        bad_host = host not in LOCAL_HOSTS
+        bad_origin = locked and origin is not None and not re.match(LOCAL_ORIGIN, origin)
+        if not (bad_host or bad_origin):
+            return await self.app(scope, receive, send)
+        if scope["type"] == "websocket":
+            await receive()  # the connect event
+            return await send({"type": "websocket.close", "code": 4403})
+        body = b'{"detail":"Request refused: the engine only answers this computer\'s own pages"}'
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(body)).encode())]})
+        await send({"type": "http.response.body", "body": body})
+
+
+class _NotFinite(ValueError):
+    pass
+
+
+def _finite_float(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):             # 1e309 and beyond overflow to infinity
+        raise _NotFinite(text)
+    return value
+
+
+def _reject_constant(name: str):
+    raise _NotFinite(name)                   # NaN, Infinity, -Infinity
+
+
+class FiniteJson:
+    """Refuses JSON bodies holding NaN or infinite numbers. Python's parser accepts
+    them, validation lets infinity through "greater than 0" checks, and echoing a
+    NaN back in an error crashed the response: a 500 instead of a clear refusal."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] not in ("POST", "PUT", "PATCH"):
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+        if "json" not in headers.get("content-type", ""):
+            return await self.app(scope, receive, send)
+        chunks, more = [], True
+        while more:
+            message = await receive()
+            if message["type"] != "http.request":
+                return await self.app(scope, receive, send)
+            chunks.append(message.get("body", b""))
+            more = message.get("more_body", False)
+        body = b"".join(chunks)
+        try:
+            json.loads(body or b"null", parse_constant=_reject_constant, parse_float=_finite_float)
+        except _NotFinite as exc:
+            payload = json.dumps({"detail": f"Numbers must be finite; got {str(exc)[:20]}"}).encode()
+            await send({"type": "http.response.start", "status": 422,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"content-length", str(len(payload)).encode())]})
+            return await send({"type": "http.response.body", "body": payload})
+        except (ValueError, RecursionError):
+            pass                                  # malformed JSON: FastAPI reports it as usual
+
+        sent = False
+
+        async def replay():
+            nonlocal sent
+            if not sent:
+                sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        return await self.app(scope, replay, send)
 
 
 def read_preference(sessionmaker) -> str:
@@ -77,12 +178,18 @@ def create_app(
     app.state.memo_generator = memo_generator or gemini.generate
     app.state.feed_factory = factory
     app.state.hub = LiveHub(sessionmaker, first_feed) if first_feed else None
+    # With a session token (the desktop app) the token is the lock, and the
+    # packaged UI, loaded from disk, sends Origin "file://" or "null". Without
+    # one (`npm run engine:dev`) only pages served from this machine may call in.
+    origins = LOCAL_ORIGIN if not app.state.token else r"^(http://(localhost|127\.0\.0\.1)(:\d+)?|file://|null)$"
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"^(http://(localhost|127\.0\.0\.1)(:\d+)?|file://|null)$",
+        allow_origin_regex=origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(FiniteJson)
+    app.add_middleware(LocalOnly)
 
     @app.get("/health")
     def health():

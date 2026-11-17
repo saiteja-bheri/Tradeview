@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from datetime import date, datetime, timedelta
 
 import numpy as np
@@ -340,10 +341,30 @@ def cov_lookback(params: dict) -> int:
     return int(params.get("cov_lookback_days") or 0) or int(params["lookback_days"])
 
 
+# At most this many full recalculations run at once. They are pure-Python work
+# that holds the interpreter lock; with every panel loading at once, twenty threads
+# fighting over that lock made a burst take 19 s on macOS instead of under 2 s.
+COMPUTE_SLOTS = 2
+_compute_gate = threading.BoundedSemaphore(COMPUTE_SLOTS)
+_in_compute = threading.local()
+
+
 def compute(session: Session, overrides: dict | None = None, *, refresh: bool = True,
             fetcher=None, quotes: dict | None = None) -> dict:
     """`quotes` are the live hub's latest quotes; when they cover the benchmark
     and the holdings, today's prices count as a provisional daily bar."""
+    if getattr(_in_compute, "active", False):          # already inside: never wait on our own slot
+        return _compute(session, overrides, refresh=refresh, fetcher=fetcher, quotes=quotes)
+    with _compute_gate:
+        _in_compute.active = True
+        try:
+            return _compute(session, overrides, refresh=refresh, fetcher=fetcher, quotes=quotes)
+        finally:
+            _in_compute.active = False
+
+
+def _compute(session: Session, overrides: dict | None = None, *, refresh: bool = True,
+             fetcher=None, quotes: dict | None = None) -> dict:
     params = {**get_settings(session), **validate_settings(overrides or {})}
     benchmark = params["benchmark"]
     label = params["benchmark_name"] or benchmark

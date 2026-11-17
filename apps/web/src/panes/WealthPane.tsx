@@ -6,7 +6,7 @@ import { useStore } from "../state/store";
 import { Empty } from "../ui";
 
 const GROUP_COLOR: Record<string, string> = {
-  Equity: "var(--color-cyan)", "Mutual funds": "#6aa8ff", Gold: "var(--color-amber)", Commodities: "#c98a3b",
+  Equity: "var(--color-cyan)", "Mutual funds": "#6aa8ff", Gold: "var(--color-accent)", Commodities: "#c98a3b",
   Bonds: "#9b8cff", Cash: "var(--color-up)", Deposits: "#5fd3a8", Retirement: "#e07bd0", Insurance: "#ff8f6b",
 };
 
@@ -28,7 +28,7 @@ const blank = (kind: WealthKind): WealthInput => ({
   monthly_contribution: 0, cover: 0, premium: 0, notes: "",
 });
 
-const field = "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-amber";
+const field = "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-accent";
 
 /** Net worth beyond the market portfolio: cash, deposits, pension and insurance. */
 export function WealthPane() {
@@ -79,7 +79,7 @@ export function WealthPane() {
     <div className="flex h-full flex-col overflow-auto">
       <div className="border-b border-line px-3 py-3">
         <div className="text-[10px] tracking-widest text-dim">TOTAL NET WORTH</div>
-        <div className="text-2xl font-semibold text-amber">{inr(w.net_worth)}</div>
+        <div className="text-2xl font-semibold text-accent">{inr(w.net_worth)}</div>
         <div className="mt-0.5 text-[10.5px] text-dim">
           Market portfolio {inr(w.market_value)} · portfolio cash {inr(w.portfolio_cash)} · other assets {inr(w.other_assets - w.portfolio_cash)}
         </div>
@@ -120,7 +120,7 @@ export function WealthPane() {
         <span className="text-[10px] tracking-widest text-dim">CASH, DEPOSITS, PENSION AND INSURANCE</span>
         <select value="" aria-label="Add an item" disabled={busy}
                 onChange={(e) => e.target.value && setForm(blank(e.target.value as WealthKind))}
-                className="border border-amber bg-bg px-1.5 py-0.5 text-[11px] text-amber outline-none">
+                className="border border-accent bg-bg px-1.5 py-0.5 text-[11px] text-accent outline-none">
           <option value="">+ ADD…</option>
           {w.kinds.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
         </select>
@@ -128,7 +128,7 @@ export function WealthPane() {
 
       {form && spec && (
         <form onSubmit={save} className="mx-3 mb-2 grid grid-cols-2 gap-x-3 gap-y-2 border border-line p-2.5 sm:grid-cols-3">
-          <div className="col-span-full text-[11px] text-amber">
+          <div className="col-span-full text-[11px] text-accent">
             {form.id ? "Edit" : "Add"} {w.kinds.find((k) => k.kind === form.kind)?.label}
           </div>
           <Label text="NAME"><input value={form.name} onChange={set("name")} placeholder="e.g. Salary account" className={field} /></Label>
@@ -169,7 +169,7 @@ export function WealthPane() {
             </>
           )}
           <div className="col-span-full flex gap-2">
-            <button type="submit" disabled={busy} className="border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40">
+            <button type="submit" disabled={busy} className="border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40">
               {form.id ? "SAVE" : "ADD"}
             </button>
             <button type="button" onClick={() => setForm(null)} className="border border-line px-3 py-1 text-dim hover:text-ink">CANCEL</button>
@@ -235,7 +235,7 @@ function Label({ text, children }: { text: string; children: React.ReactNode }) 
 
 const KIND_LABEL: Record<string, { text: string; cls: string }> = {
   dividend: { text: "DIVIDEND", cls: "text-up" }, sale: { text: "SALE", cls: "text-up" },
-  purchase: { text: "PURCHASE", cls: "text-down" }, withdrawal: { text: "WITHDRAWN", cls: "text-amber" },
+  purchase: { text: "PURCHASE", cls: "text-down" }, withdrawal: { text: "WITHDRAWN", cls: "text-accent" },
 };
 
 /** Cash held in the portfolio: dividends, coupons and sale proceeds stay here until a
@@ -299,7 +299,7 @@ function PortfolioCashCard({ onChange }: { onChange: () => void }) {
             <label className="block min-w-0 flex-1"><span className="block text-[9.5px] tracking-widest text-dim">NOTE</span>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. moved to savings account" className={field} /></label>
             <button type="submit" disabled={!(Number(amount) > 0)}
-                    className="border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40">
+                    className="border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40">
               RECORD WITHDRAWAL
             </button>
             <button type="button" onClick={() => setAmount(String(Math.round(c.balance * 100) / 100))}

@@ -6,12 +6,12 @@ import { Empty, Seg } from "../ui";
 type View = "matrix" | "annualized" | "correlation";
 
 /** Holding period of each return, in trading days. */
-const HORIZONS = [
+export const HORIZONS = [
   { value: 1, label: "1D" }, { value: 5, label: "1W" }, { value: 10, label: "2W" }, { value: 21, label: "1M" },
   { value: 63, label: "3M" }, { value: 126, label: "6M" }, { value: 252, label: "1Y" },
 ];
 /** How much history the matrix is estimated from (0 = the RISK tab's lookback). */
-const WINDOWS = [
+export const WINDOWS = [
   { value: 0, label: "= RISK" }, { value: 252, label: "1Y" }, { value: 504, label: "2Y" }, { value: 756, label: "3Y" },
   { value: 1260, label: "5Y" }, { value: 2520, label: "10Y" },
 ];
@@ -80,7 +80,7 @@ export function CovariancePane() {
         {title} · {cov.observations} {h > 1 ? "OVERLAPPING " : ""}OBSERVATIONS
         {cov.from && <> · {cov.from} TO {cov.to}</>}
         {h > 1 && cov.independent_periods != null && (
-          <span className={cov.independent_periods < 10 ? "text-amber" : ""}
+          <span className={cov.independent_periods < 10 ? "text-accent" : ""}
                 title="Overlapping windows reuse the same days; this is how many separate periods the data really holds">
             {" "}· ~{cov.independent_periods} INDEPENDENT
           </span>
@@ -101,7 +101,7 @@ export function CovariancePane() {
                 <td key={j} className="r"
                     style={{
                       background: v == null ? undefined
-                        : `rgb(${v < 0 ? "64 156 255" : "255 176 0"} / ${(Math.abs(v) / max) * 0.45})`,
+                        : `rgb(${v < 0 ? "64 156 255" : "20 217 165"} / ${(Math.abs(v) / max) * 0.45})`,
                     }}>
                   {num(v, digits)}
                 </td>

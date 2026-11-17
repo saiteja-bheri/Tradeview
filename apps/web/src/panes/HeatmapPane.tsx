@@ -65,7 +65,7 @@ function squarify(sizes: number[], box: Rect): Rect[] {
   return out;
 }
 
-/** Diverging red-grey-green (or grey-amber for one-sided metrics). */
+/** Diverging red-grey-green (or grey-accent for one-sided metrics). */
 function colour(v: number | null, range: number, diverging: boolean, centre: number): string {
   if (v == null || !Number.isFinite(v)) return "var(--color-raise)";
   if (!diverging) {
@@ -256,7 +256,7 @@ export function HeatmapPane() {
           return (
             <button key={t.symbol} type="button" onClick={() => select(t.symbol)} onMouseEnter={() => setHover(t)}
                     aria-label={`${t.symbol} ${meta.label} ${fmt(t.metric)}`}
-                    className={`tile-anim absolute flex flex-col items-center justify-center overflow-hidden border text-center ${t.symbol === selected ? "z-10 border-amber" : "border-bg"}`}
+                    className={`tile-anim absolute flex flex-col items-center justify-center overflow-hidden border text-center ${t.symbol === selected ? "z-10 border-accent" : "border-bg"}`}
                     style={{ left: r.x, top: r.y, width: r.w, height: r.h, backgroundColor: colour(t.metric, range, meta.diverging, centre) }}>
               {mid && <span className={`font-semibold text-white/95 ${big ? "text-[12px]" : "text-[10px]"}`}>{ticker(t.symbol)}</span>}
               {big && <span className="text-[11px] tabular-nums text-white/85">{fmt(t.metric)}</span>}

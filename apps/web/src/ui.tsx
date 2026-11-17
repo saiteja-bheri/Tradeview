@@ -44,7 +44,7 @@ export function Seg<T extends string | number>({
             onClick={() => onChange(o.value)}
             aria-pressed={o.value === value}
             className={`px-2 py-1 text-[10.5px] transition-colors ${
-              o.value === value ? "bg-amber font-semibold text-black" : "text-dim hover:bg-raise hover:text-ink"
+              o.value === value ? "bg-accent font-semibold text-black" : "text-dim hover:bg-raise hover:text-ink"
             }`}
           >
             {o.label}

@@ -108,7 +108,7 @@ export function ZoomHint({ zoomed, reset, extra }: { zoomed: boolean; reset: () 
     <span className="ml-auto flex items-center gap-2 text-[10px] text-dim">
       {extra}
       {zoomed ? (
-        <button type="button" onClick={reset} className="border border-line px-1.5 py-0.5 text-ink hover:border-amber">RESET ZOOM</button>
+        <button type="button" onClick={reset} className="border border-line px-1.5 py-0.5 text-ink hover:border-accent">RESET ZOOM</button>
       ) : <span>scroll to zoom · drag to pan</span>}
     </span>
   );

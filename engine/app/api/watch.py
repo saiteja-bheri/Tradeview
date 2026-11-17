@@ -424,3 +424,26 @@ def _clean(obj):
         v = float(obj)
         return v if np.isfinite(v) else None
     return obj
+
+
+# ---------------------------------------------------------------- markets page
+
+@router.get("/markets/overview")
+async def markets_overview(request: Request,
+                           universe: Literal["nifty50", "mine"] = "nifty50",
+                           window: int = Query(63, description="Trading days: 21, 63 or 252")):
+    """Index levels with their recent path, world indices and the day's movers
+    (NIFTY 50 or your own stocks). Quotes are cached for five minutes; when Yahoo
+    can't be reached the answer says so with `online: false`."""
+    from app.market import overview
+
+    if window not in (21, 63, 252):
+        raise HTTPException(status_code=422, detail="window must be 21, 63 or 252 trading days")
+
+    def run() -> dict:
+        with request.app.state.sessionmaker() as s:
+            return overview.build(s, universe, window,
+                                  quote_fetcher=getattr(request.app.state, "quote_fetcher", None),
+                                  price_fetcher=getattr(request.app.state, "price_fetcher", None))
+
+    return await asyncio.to_thread(run)

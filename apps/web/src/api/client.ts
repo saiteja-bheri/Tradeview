@@ -1,4 +1,4 @@
-import type { OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
+import type { MarketsOverview, MoversUniverse, OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
 
 declare global {
   interface Window {
@@ -117,6 +117,8 @@ export const api = {
   viewed: (symbol: string, name?: string, exchange?: string) =>
     json<{ symbol: string; tracked: boolean }>("POST", `/api/watchlist/${encodeURIComponent(symbol)}/view`, { name, exchange }),
   cache: () => call<CacheStatus>("/api/cache"),
+  marketsOverview: (universe: MoversUniverse, window: 21 | 63 | 252) =>
+    call<MarketsOverview>(`/api/markets/overview?universe=${universe}&window=${window}`),
   prices: (symbol: string, days = 730, fetch = false) =>
     call<{ symbol: string; currency: string; warning: string | null; tracked: boolean; saved: boolean;
            bars: { date: string; close: number; adj_close: number }[] }>(

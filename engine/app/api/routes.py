@@ -3,6 +3,7 @@ are to the local ledger database (imports, manual corporate actions, settings)."
 from __future__ import annotations
 
 import asyncio
+import hmac
 import csv
 import io
 import json
@@ -49,9 +50,22 @@ def get_session(request: Request):
         yield session
 
 
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # far above any broker report or holdings workbook
+
+
+async def read_upload(file: UploadFile) -> bytes:
+    """The uploaded file, refused when it is too big to be a trade report."""
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413,
+                            detail=f"That file is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB; "
+                                   "a trade report or holdings file is far smaller")
+    return content
+
+
 def require_token(request: Request) -> None:
     token = request.app.state.token
-    if token and request.headers.get("x-qt-token") != token:
+    if token and not hmac.compare_digest(request.headers.get("x-qt-token", "").encode(), token.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing engine token")
 
 
@@ -90,8 +104,10 @@ class TradeIn(BaseModel):
     nothing in this engine can send it, or anything else, to a broker."""
     symbol: str = Field(min_length=1, max_length=40)
     side: Literal["BUY", "SELL"]
-    quantity: float = Field(gt=0)
-    price: float = Field(gt=0)
+    # Upper bounds far above any real trade (a billion shares, a billion per share)
+    # but low enough that quantity x price never overflows the maths.
+    quantity: float = Field(gt=0, le=1e9)
+    price: float = Field(gt=0, le=1e9)
     traded_at: datetime
     name: str | None = Field(default=None, max_length=120)
     # "INTL" when the symbol was picked from an international search result (AAPL),
@@ -103,6 +119,8 @@ class TradeIn(BaseModel):
     def _not_in_future(cls, v: datetime) -> datetime:
         if v.date() > date.today():
             raise ValueError(f"Trade date {v.date():%d %b %Y} is in the future; record trades once they happen")
+        if v.year < 1900:
+            raise ValueError(f"Trade date {v.date():%d %b %Y} is before 1900; check the year")
         return v
 
 
@@ -256,7 +274,7 @@ def _preview(content: bytes) -> dict:
 @router.post("/ledger/import/preview")
 async def import_preview(file: UploadFile = File(...)):
     """What the file looks like: broker, heading row, each field's column and sample rows."""
-    content = await file.read()
+    content = await read_upload(file)
     try:
         return await asyncio.to_thread(_preview, content)
     except ValueError as exc:
@@ -275,7 +293,7 @@ async def import_ledger(request: Request, file: UploadFile = File(...),
     The broker is recognised from the headings. A file in another layout is read
     through a column mapping: matched automatically from its headings, or given
     in `columns` when the user chose the columns in the import dialog."""
-    content = await file.read()
+    content = await read_upload(file)
 
     def run():
         if columns or broker == "generic":
@@ -321,7 +339,7 @@ def everything_template():
 @router.post("/import/everything/preview")
 async def everything_preview(file: UploadFile = File(...)):
     """What each sheet of the file holds (trades, bonds or wealth) and how its columns were matched."""
-    content = await file.read()
+    content = await read_upload(file)
     try:
         return await asyncio.to_thread(workbook.preview, content)
     except ValueError as exc:
@@ -334,7 +352,7 @@ async def everything_preview(file: UploadFile = File(...)):
 async def everything_import(request: Request, file: UploadFile = File(...)):
     """Imports every recognised sheet in one go: trades (stocks, ETFs, mutual funds,
     commodities), bond terms and holdings, and deposits, pension, cash and insurance."""
-    content = await file.read()
+    content = await read_upload(file)
 
     def run():
         with request.app.state.sessionmaker() as s:

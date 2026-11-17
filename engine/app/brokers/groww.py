@@ -26,6 +26,25 @@ def _sdk():
     return GrowwAPI
 
 
+class ReadOnlyClient:
+    """The Groww SDK client with only its read calls reachable. The SDK object
+    also carries order methods (place, modify, cancel); behind this wrapper they
+    do not exist, so no bug or later change can reach them by accident."""
+
+    READS = frozenset({"get_holdings_for_user", "get_ltp", "get_quote", "get_ohlc"})
+
+    def __init__(self, client):
+        object.__setattr__(self, "_client", client)
+
+    def __getattr__(self, name: str):
+        if name in self.READS or name.isupper():  # read calls and constants like SEGMENT_CASH
+            return getattr(self._client, name)
+        raise AttributeError(f"Groww client: '{name}' is blocked; this app only reads from brokers")
+
+    def __setattr__(self, name, value):
+        raise AttributeError("Groww client is read-only")
+
+
 class GrowwSource(Source):
     id = "groww"
     label = "Groww"
@@ -77,7 +96,7 @@ class GrowwSource(Source):
         token = self.session_token()
         if not token:
             raise BrokerError("No Groww session today. Click LOG IN under Groww first.", status=401)
-        return _sdk()(token)
+        return ReadOnlyClient(_sdk()(token))
 
     def fetch_holdings(self) -> list[Holding]:
         try:
@@ -98,7 +117,7 @@ class GrowwSource(Source):
 
     def make_feed(self, cache_dir: Path):
         if not self.session_token():
-            return UnavailableFeed(self.id, "Log in to Groww under CONNECT to use its prices.")
+            return UnavailableFeed(self.id, "Log in to Groww under Settings → Connections to use its prices.")
         from app.market.feeds.groww_poll import GrowwPollFeed
 
         return GrowwPollFeed(self.client)

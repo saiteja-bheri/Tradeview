@@ -2,6 +2,7 @@ import { Command } from "cmdk";
 import { useEffect } from "react";
 import { ticker } from "../format";
 import type { Holding } from "../api/types";
+import { PAGES } from "../layout/pages";
 import { useStore } from "../state/store";
 
 const NONE: Holding[] = [];
@@ -32,7 +33,7 @@ export function Palette() {
     fn();
   };
   const item =
-    "flex cursor-pointer items-center justify-between px-3 py-1.5 data-[selected=true]:bg-amber data-[selected=true]:text-black";
+    "flex cursor-pointer items-center justify-between px-3 py-1.5 data-[selected=true]:bg-accent data-[selected=true]:text-black";
   const group = "[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-dim";
 
   return (
@@ -41,11 +42,11 @@ export function Palette() {
       onOpenChange={setOpen}
       label="Command palette"
       overlayClassName="fixed inset-0 z-40 bg-black/60"
-      contentClassName="fixed left-1/2 top-24 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 border border-amber bg-panel shadow-2xl"
+      contentClassName="fixed left-1/2 top-24 z-50 w-[460px] max-w-[92vw] -translate-x-1/2 border border-accent bg-panel shadow-2xl"
     >
       <Command.Input
         placeholder="Type a command or ticker…"
-        className="w-full border-b border-line bg-transparent px-3 py-2.5 text-amber outline-none placeholder:text-dim"
+        className="w-full border-b border-line bg-transparent px-3 py-2.5 text-accent outline-none placeholder:text-dim"
       />
       <Command.List className="max-h-80 overflow-auto py-1">
         <Command.Empty className="px-3 py-3 text-dim">No matching command.</Command.Empty>
@@ -59,6 +60,14 @@ export function Palette() {
             ))}
           </Command.Group>
         )}
+        <Command.Group heading="GO TO" className={group}>
+          {PAGES.map((pg, i) => (
+            <Command.Item key={pg.id} value={`go to ${pg.label}`} className={item}
+                          onSelect={run(() => useStore.getState().setPage(pg.id))}>
+              <span>Go to {pg.label}</span><span className="text-[10px] opacity-60">{i + 1}</span>
+            </Command.Item>
+          ))}
+        </Command.Group>
         <Command.Group heading="RISK PARAMETERS" className={group}>
           {BENCHMARKS.map(([symbol, name]) => (
             <Command.Item key={symbol} className={item}

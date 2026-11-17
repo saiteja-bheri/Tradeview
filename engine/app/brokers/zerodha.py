@@ -122,7 +122,7 @@ class ZerodhaSource(Source):
     def make_feed(self, cache_dir: Path):
         token = self.session_token()
         if not (self.value("api_key") and token):
-            return UnavailableFeed(self.id, "Log in to Zerodha under CONNECT to stream its prices.")
+            return UnavailableFeed(self.id, "Log in to Zerodha under Settings → Connections to stream its prices.")
         from app.market.feeds.zerodha import ZerodhaFeed
 
         return ZerodhaFeed(self.value("api_key") or "", token, cache_dir)

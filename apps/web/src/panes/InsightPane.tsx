@@ -86,9 +86,9 @@ export function InsightPane() {
           <input type="password" value={key} onChange={(e) => setKey(e.target.value)}
                  placeholder="Gemini API key" aria-label="Gemini API key" autoComplete="off" spellCheck={false}
                  disabled={busy}
-                 className="min-w-0 flex-1 border border-line bg-bg px-2 py-1.5 text-ink outline-none placeholder:text-dim/60 focus:border-amber" />
+                 className="min-w-0 flex-1 border border-line bg-bg px-2 py-1.5 text-ink outline-none placeholder:text-dim/60 focus:border-accent" />
           <button type="submit" disabled={busy || key.trim().length < 20}
-                  className="border border-amber px-3 py-1.5 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+                  className="border border-accent px-3 py-1.5 text-accent hover:bg-accent hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-accent">
             SAVE
           </button>
         </form>
@@ -110,14 +110,14 @@ export function InsightPane() {
               <button key={f} role="radio" aria-checked={(state?.frequency ?? "hourly") === f} disabled={busy}
                       onClick={() => setFrequency(f)}
                       className={`-ml-px border px-1.5 py-0.5 text-[10px] tracking-widest first:ml-0 ${
-                        (state?.frequency ?? "hourly") === f ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                        (state?.frequency ?? "hourly") === f ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
                 {f === "hourly" ? "HOURLY" : "DAILY"}
               </button>
             ))}
           </div>
           <button onClick={generate} disabled={busy || !hasMetrics || !state || waiting}
                   title={!hasMetrics ? "Needs risk metrics first" : waiting ? `Next new memo after ${nextAt}` : ""}
-                  className="border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+                  className="border border-accent px-2 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-accent">
             {busy ? "WRITING…" : memo ? "NEW MEMO" : "GENERATE MEMO"}
           </button>
         </div>
@@ -175,7 +175,7 @@ export function InsightPane() {
             {memos.map((m) => (
               <button key={m.id} onClick={() => setShown(m.id)}
                       className={`block w-full px-1 py-1 text-left hover:bg-raise ${
-                        m.id === memo?.id ? "text-amber" : "text-dim"
+                        m.id === memo?.id ? "text-accent" : "text-dim"
                       }`}>
                 {m.created_at.slice(0, 16).replace("T", " ")}
                 {m.unverified_numbers.length > 0 ? " · ⚠" : ""}
@@ -202,7 +202,7 @@ function MemoText({ text }: { text: string }) {
         const clean = line.replace(/^[#*\s]+|[*:\s]+$/g, "");
         if (!clean) return null;
         if (HEADINGS.includes(clean.toUpperCase()))
-          return <h3 key={i} className="pt-2 text-[10px] tracking-widest text-amber first:pt-0">{clean.toUpperCase()}</h3>;
+          return <h3 key={i} className="pt-2 text-[10px] tracking-widest text-accent first:pt-0">{clean.toUpperCase()}</h3>;
         return <p key={i} className="whitespace-pre-wrap">{line.replace(/\*\*/g, "")}</p>;
       })}
     </div>

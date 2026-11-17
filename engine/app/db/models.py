@@ -205,8 +205,16 @@ def _migrate(engine) -> None:
                         conn.execute(text(_AFTER_ADD[(table, name)]))
 
 
+# Requests run in up to 40 server threads plus up to ~14 background workers
+# (asyncio.to_thread), each holding one connection while it works. The pool must
+# cover them all, or a burst (every pane loading at start-up) waits for a free
+# connection and fails after the timeout. SQLite connections are cheap.
+POOL_SIZE, POOL_OVERFLOW = 10, 54
+
+
 def make_sessionmaker(url: str) -> sessionmaker:
-    engine = create_engine(url, connect_args={"check_same_thread": False})
+    engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30},
+                           pool_size=POOL_SIZE, max_overflow=POOL_OVERFLOW)
     Base.metadata.create_all(engine)
     _migrate(engine)
     return sessionmaker(engine, expire_on_commit=False)

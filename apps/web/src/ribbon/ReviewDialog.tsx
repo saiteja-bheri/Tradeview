@@ -58,7 +58,7 @@ export function ReviewDialog() {
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-16"
          onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
       <div role="dialog" aria-modal="true" aria-labelledby="review-title"
-           className="flex max-h-[84vh] w-[760px] max-w-[94vw] flex-col border border-amber bg-panel shadow-2xl">
+           className="flex max-h-[84vh] w-[760px] max-w-[94vw] flex-col border border-accent bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
           <h2 id="review-title" className="tracking-widest text-amber">CHECK SPLITS AND BONUS ISSUES</h2>
           <button onClick={() => setOpen(false)} aria-label="Close" className="text-dim hover:text-ink">✕</button>
@@ -80,7 +80,7 @@ export function ReviewDialog() {
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <div>
                     <span className="font-semibold text-cyan">{ticker(a.symbol)}</span>
-                    <span className="ml-2 text-amber">{a.kind.toUpperCase()}</span>
+                    <span className="ml-2 text-accent">{a.kind.toUpperCase()}</span>
                     <span className="ml-2">{ratio(a)}</span>
                   </div>
                   <span className="text-[11px] text-dim">
@@ -97,7 +97,7 @@ export function ReviewDialog() {
                 </div>
                 <p className={`mt-2 text-[11px] ${a.suggestion.answer ? "text-ink" : "text-dim"}`}>
                   {a.suggestion.answer && (
-                    <span className="mr-1 text-amber">
+                    <span className="mr-1 text-accent">
                       Suggested: {a.suggestion.answer === "apply" ? "apply it" : "skip it"}.
                     </span>
                   )}
@@ -105,11 +105,11 @@ export function ReviewDialog() {
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button disabled={busy} onClick={() => act(() => api.decideReview(a.id, "apply"))}
-                          className={`${btn} ${a.suggestion.answer === "apply" ? "border-amber text-amber hover:bg-amber hover:text-black" : "border-line text-dim hover:text-ink"}`}>
+                          className={`${btn} ${a.suggestion.answer === "apply" ? "border-accent text-accent hover:bg-accent hover:text-black" : "border-line text-dim hover:text-ink"}`}>
                     FILE IS AS TRADED · APPLY
                   </button>
                   <button disabled={busy} onClick={() => act(() => api.decideReview(a.id, "skip"))}
-                          className={`${btn} ${a.suggestion.answer === "skip" ? "border-amber text-amber hover:bg-amber hover:text-black" : "border-line text-dim hover:text-ink"}`}>
+                          className={`${btn} ${a.suggestion.answer === "skip" ? "border-accent text-accent hover:bg-accent hover:text-black" : "border-line text-dim hover:text-ink"}`}>
                     FILE ALREADY ADJUSTED · SKIP
                   </button>
                 </div>
@@ -130,7 +130,7 @@ export function ReviewDialog() {
               </button>
               {suggested > 0 && (
                 <button disabled={busy} onClick={() => act(() => api.acceptSuggestions())}
-                        className={`${btn} border-amber text-amber hover:bg-amber hover:text-black`}>
+                        className={`${btn} border-accent text-accent hover:bg-accent hover:text-black`}>
                   ACCEPT SUGGESTIONS
                 </button>
               )}

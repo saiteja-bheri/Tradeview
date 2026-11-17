@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { embedHasData, tradingViewSymbol } from "../chartSymbol";
+import { bseListing, embedHasData, tradingViewSymbol } from "../chartSymbol";
 import { ticker } from "../format";
 import { useStore } from "../state/store";
 import { Empty } from "../ui";
@@ -30,20 +30,24 @@ export function ChartPane() {
   });
   const tv = selected ? tradingViewSymbol(selected, exchange) : "";
   const canEmbed = !!selected && !selected.startsWith("MF:") && embedHasData(tv);
+  // NSE stocks: TradingView only has the BSE listing, so it is an opt-in, labelled view.
+  const bse = selected && !canEmbed ? bseListing(selected) : null;
+  const tvShown = canEmbed ? tv : bse;
+  const nse = !!selected && selected.toUpperCase().endsWith(".NS");
   const [source, setSource] = useState<Source>("yahoo");
 
   useEffect(() => {
     setSource(!kept && canEmbed ? "tradingview" : "yahoo");
   }, [selected, kept, canEmbed]);
 
-  if (!selected) return <Empty title="No symbol selected" hint="Pick a holding or search a stock by name in the ribbon." />;
+  if (!selected) return <Empty title="No symbol selected" hint="Pick a holding or search a stock by name in the top bar." />;
   if (selected.startsWith("BOND:"))
     return <Empty title="No market chart for this bond"
                   hint="Bonds tracked by hand are valued at the price you set under Add or edit bonds." />;
 
   const tab = (s: Source, label: string) => (
     <button onClick={() => setSource(s)} aria-pressed={source === s}
-            className={`-ml-px border px-1.5 py-0.5 first:ml-0 ${source === s ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+            className={`-ml-px border px-1.5 py-0.5 first:ml-0 ${source === s ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
       {label}
     </button>
   );
@@ -52,12 +56,23 @@ export function ChartPane() {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-1 text-[10px] tracking-widest text-dim">
         <span className="truncate">
-          {source === "tradingview" ? `TRADINGVIEW · ${tv}` : `YAHOO FINANCE · ${ticker(selected)}`}
+          {source === "tradingview" && tvShown
+            ? bse
+              ? <>TRADINGVIEW · {bse} · <span className="text-amber">BSE LISTING (TRADINGVIEW HAS NO NSE DATA)</span></>
+              : `TRADINGVIEW · ${tv}`
+            : `YAHOO FINANCE · ${ticker(selected)}${nse ? " · NSE" : ""}`}
         </span>
-        {canEmbed && <span className="flex shrink-0">{tab("yahoo", "YAHOO")}{tab("tradingview", "TRADINGVIEW")}</span>}
+        {tvShown && (
+          <span className="flex shrink-0">
+            {tab("yahoo", bse ? "NSE · YAHOO" : "YAHOO")}
+            {tab("tradingview", bse ? "BSE · TRADINGVIEW" : "TRADINGVIEW")}
+          </span>
+        )}
       </div>
       <div className="min-h-0 flex-1">
-        {source === "tradingview" && canEmbed ? <TradingView key={tv} symbol={tv} /> : <PriceChart key={selected} symbol={selected} />}
+        {source === "tradingview" && tvShown
+          ? <TradingView key={tvShown} symbol={tvShown} />
+          : <PriceChart key={selected} symbol={selected} />}
       </div>
     </div>
   );
@@ -75,7 +90,7 @@ function TradingView({ symbol }: { symbol: string }) {
     hide_side_toolbar: "0",
     allow_symbol_change: "1",
     save_image: "0",
-    toolbar_bg: "#0d0f13",
+    toolbar_bg: "#12161b",
   });
   return (
     <iframe

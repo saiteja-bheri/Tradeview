@@ -606,3 +606,29 @@ export interface PortfolioCash {
   movements: CashMovement[];
   withdrawals: { id: number; date: string; amount: number; note: string }[];
 }
+
+export interface MarketIndex {
+  symbol: string;
+  name: string;
+  last: number;
+  change_pct: number | null;
+  region?: string;
+  series?: { date: string; pct: number }[];
+}
+
+export interface Mover {
+  symbol: string;
+  name: string;
+  last: number;
+  change_pct: number | null;
+}
+
+export type MoversUniverse = "nifty50" | "mine";
+
+export interface MarketsOverview {
+  online: boolean;
+  as_of: string | null;
+  indexes: MarketIndex[];
+  global: MarketIndex[];
+  movers: { universe: MoversUniverse; gainers: Mover[]; losers: Mover[] };
+}

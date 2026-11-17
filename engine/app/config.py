@@ -99,3 +99,31 @@ def feed_choice() -> str:
 
 def gemini_model() -> str:
     return os.environ.get("QT_GEMINI_MODEL", "").strip() or "gemini-3.8-flash"
+
+
+# ---------------------------------------------------------------- markets page
+
+# Indices drawn on the Markets page's Indexes card (the saved benchmark is added when different).
+INDEX_STRIP = ["^NSEI", "^BSESN", "^NSEBANK"]
+
+# (Yahoo symbol, display name, region) for the Global markets card.
+GLOBAL_INDICES: list[tuple[str, str, str]] = [
+    ("^NSEI", "NIFTY 50", "India"), ("^BSESN", "SENSEX", "India"),
+    ("^GSPC", "S&P 500", "US"), ("^IXIC", "NASDAQ", "US"), ("^DJI", "DOW JONES", "US"),
+    ("^FTSE", "FTSE 100", "UK"),
+    ("^GDAXI", "DAX", "Europe"), ("^FCHI", "CAC 40", "Europe"),
+    ("^N225", "NIKKEI 225", "Asia"), ("^HSI", "HANG SENG", "Asia"),
+    ("000001.SS", "SHANGHAI", "Asia"), ("^STI", "STRAITS TIMES", "Asia"),
+]
+
+# NIFTY 50 constituents for the Top movers card. Maintained by hand: NSE
+# rebalances the index twice a year, so check it against nseindia.com then.
+NIFTY50: list[str] = [f"{t}.NS" for t in (
+    "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK", "BAJAJ-AUTO", "BAJFINANCE",
+    "BAJAJFINSV", "BEL", "BHARTIARTL", "CIPLA", "COALINDIA", "DRREDDY", "EICHERMOT", "ETERNAL",
+    "GRASIM", "HCLTECH", "HDFCBANK", "HDFCLIFE", "HINDALCO", "HINDUNILVR", "ICICIBANK", "INDIGO",
+    "INFY", "ITC", "JIOFIN", "JSWSTEEL", "KOTAKBANK", "LT", "M&M", "MARUTI", "MAXHEALTH",
+    "NESTLEIND", "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE", "SBIN", "SHRIRAMFIN",
+    "SUNPHARMA", "TATACONSUM", "TMPV", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT",
+    "ULTRACEMCO", "WIPRO",
+)]

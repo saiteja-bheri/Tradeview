@@ -103,7 +103,7 @@ def parse(content: bytes | str) -> ParseResult:
 
     result = ParseResult()
     for n, row in enumerate(df.to_dict("records"), start=start + 2):
-        get = lambda key: str(row.get(cols.get(key, ""), "")).strip()  # noqa: E731
+        get = lambda key: from_text(str(row.get(cols.get(key, ""), "")).strip())  # noqa: E731
         try:
             segment = get("segment").upper()
             if any(m in segment for m in NON_EQUITY_MARKERS):
@@ -122,7 +122,8 @@ def parse(content: bytes | str) -> ParseResult:
                 result.skipped.append(f"line {n}: unknown side '{side_raw}'")
                 continue
             stamp = f"{get('date')} {get('time')}".strip()
-            traded_at = pd.to_datetime(stamp, dayfirst=True).to_pydatetime()
+            # Upstox writes DD-MM-YYYY; a plain file may use YYYY-MM-DD, which must not be read day-first.
+            traded_at = pd.to_datetime(stamp, dayfirst=not stamp[:4].isdigit()).to_pydatetime()
             qty, price = abs(_num(get("qty"))), _num(get("price"))
             if qty <= 0 or price <= 0:
                 result.skipped.append(f"line {n}: zero quantity or price")
@@ -164,6 +165,20 @@ EXPORT_COLUMNS = ("Date", "Company", "Amount", "Exchange", "Segment", "Scrip Cod
                   "Trade Time", "Side", "Quantity", "Price", "Source", "Ledger Id")
 
 
+# A cell starting with one of these runs as a formula when the CSV is opened in
+# Excel or Sheets, so exported text gets a leading apostrophe (shown as text).
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def as_text(value: str) -> str:
+    return "'" + value if value.startswith(FORMULA_START) else value
+
+
+def from_text(value: str) -> str:
+    """Undoes as_text when an exported file is imported again."""
+    return value[1:] if value.startswith("'") and value[1:].startswith(FORMULA_START) else value
+
+
 def export_rows(trades, names: dict[str, str]) -> list[dict]:
     """Ledger trades as rows this parser reads back. `Ledger Id` ties a row to
     its ledger entry, so re-importing an edited export updates in place."""
@@ -176,17 +191,17 @@ def export_rows(trades, names: dict[str, str]) -> list[dict]:
         parts = t.trade_id.split(":")
         rows.append({
             "Date": t.traded_at.strftime("%d-%m-%Y"),
-            "Company": names.get(t.symbol, ""),
+            "Company": as_text(names.get(t.symbol, "")),
             "Amount": f"{t.quantity * t.price:.2f}",
             "Exchange": exchange,
             "Segment": "EQ",
-            "Scrip Code": scrip or t.symbol,
+            "Scrip Code": as_text(scrip or t.symbol),
             "Trade Num": parts[2] if len(parts) == 3 and t.broker == BROKER else "",
             "Trade Time": t.traded_at.strftime("%H:%M:%S"),
             "Side": "Buy" if t.side == "BUY" else "Sell",
             "Quantity": f"{t.quantity:g}",
             "Price": f"{t.price:.4f}".rstrip("0").rstrip("."),
-            "Source": t.broker,
-            "Ledger Id": t.trade_id,
+            "Source": as_text(t.broker),
+            "Ledger Id": as_text(t.trade_id),
         })
     return rows

@@ -8,8 +8,8 @@ const BROKER_NAME: Record<string, string> = {
   export: "This app's own trade export", generic: "A trade file in your own layout",
 };
 const btn = "border px-3 py-1 disabled:opacity-40";
-const loud = `${btn} border-amber text-amber hover:bg-amber hover:text-black disabled:hover:bg-transparent disabled:hover:text-amber`;
-const quiet = `${btn} border-line text-dim hover:border-amber hover:text-ink`;
+const loud = `${btn} border-accent text-accent hover:bg-accent hover:text-black disabled:hover:bg-transparent disabled:hover:text-accent`;
+const quiet = `${btn} border-line text-dim hover:border-accent hover:text-ink`;
 const HOLDS: Record<string, string> = {
   trades: "Stocks, ETFs, mutual funds, commodities (trades)",
   bonds: "Bonds (terms, and holdings when Quantity is given)",
@@ -167,9 +167,9 @@ export function ImportDialog() {
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-12"
          onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
       <div role="dialog" aria-modal="true" aria-labelledby="import-title"
-           className="flex max-h-[88vh] w-[900px] max-w-[95vw] flex-col border border-amber bg-panel shadow-2xl">
+           className="flex max-h-[88vh] w-[900px] max-w-[95vw] flex-col border border-accent bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-          <h2 id="import-title" className="tracking-widest text-amber">IMPORT · CSV OR EXCEL</h2>
+          <h2 id="import-title" className="tracking-widest text-accent">IMPORT · CSV OR EXCEL</h2>
           <button onClick={() => setOpen(false)} aria-label="Close" className="text-dim hover:text-ink">✕</button>
         </div>
 
@@ -181,8 +181,8 @@ export function ImportDialog() {
                 <div role="radiogroup" aria-labelledby="import-kind" className="grid gap-2 sm:grid-cols-3">
                   {KINDS.map((k) => (
                     <button key={k.id} role="radio" aria-checked={kind === k.id} onClick={() => setKind(k.id)}
-                            className={`border p-2 text-left ${kind === k.id ? "border-amber bg-amber/10" : "border-line hover:border-amber/60"}`}>
-                      <div className={`text-[10px] tracking-widest ${kind === k.id ? "text-amber" : "text-ink"}`}>
+                            className={`border p-2 text-left ${kind === k.id ? "border-accent bg-accent/10" : "border-line hover:border-accent/60"}`}>
+                      <div className={`text-[10px] tracking-widest ${kind === k.id ? "text-accent" : "text-ink"}`}>
                         {kind === k.id ? "● " : "○ "}{k.title}
                       </div>
                       <div className="mt-1 text-[10.5px] leading-snug text-dim">{k.text}</div>
@@ -193,7 +193,7 @@ export function ImportDialog() {
                   <label className="mt-2 flex items-center gap-2 text-[11px] text-dim">
                     Broker
                     <select value={brokerChoice} onChange={(e) => setBrokerChoice(e.target.value as BrokerChoice)}
-                            className="border border-line bg-bg px-1 py-0.5 text-ink outline-none focus:border-amber">
+                            className="border border-line bg-bg px-1 py-0.5 text-ink outline-none focus:border-accent">
                       <option value="auto">Recognise from the headings</option>
                       <option value="zerodha">Zerodha Console tradebook</option>
                       <option value="groww">Groww order report</option>
@@ -204,8 +204,8 @@ export function ImportDialog() {
               </section>
 
               {kind !== "broker" && guide && (
-                <section className="border border-amber/60 p-2.5">
-                  <h3 className="mb-1 text-[10px] tracking-widest text-amber">HOLDINGS FILE · THE INSTRUMENT TYPE COLUMN</h3>
+                <section className="border border-accent/60 p-2.5">
+                  <h3 className="mb-1 text-[10px] tracking-widest text-accent">HOLDINGS FILE · THE INSTRUMENT TYPE COLUMN</h3>
                   <p className="text-[11px] leading-relaxed text-dim">
                     Add a column headed <span className="font-semibold text-ink">Instrument type</span> and say on every
                     row what it is. That is how the app tells an FD from a stock, or EPF from NPS: each row goes to
@@ -230,7 +230,7 @@ export function ImportDialog() {
                     <span className="text-ink">Columns: </span>
                     {guide.columns.map((c, i) => (
                       <span key={c.heading} title={c.format}>
-                        <span className={c.required ? "text-amber" : "text-ink"}>{c.heading}</span>{i < guide.columns.length - 1 ? " · " : ""}
+                        <span className={c.required ? "text-accent" : "text-ink"}>{c.heading}</span>{i < guide.columns.length - 1 ? " · " : ""}
                       </span>
                     ))}
                   </div>
@@ -250,7 +250,7 @@ export function ImportDialog() {
                         <div key={id} className="border border-line p-2 text-[10.5px]">
                           <div className="text-ink">{b.label}</div>
                           <div className="text-dim">{b.where} · {b.file}</div>
-                          <div className="mt-1"><span className="text-amber">Required: </span>{b.required.join(", ")}</div>
+                          <div className="mt-1"><span className="text-accent">Required: </span>{b.required.join(", ")}</div>
                           <div className="text-dim"><span>Optional: </span>{b.optional.join(", ")}</div>
                         </div>
                       ))}
@@ -265,7 +265,7 @@ export function ImportDialog() {
                           {formats.generic.headings.map((h) => (
                             <tr key={h.heading}>
                               <td className="l font-semibold text-cyan">{h.heading}</td>
-                              <td className={`l ${h.required ? "text-amber" : "text-dim"}`}>{h.required ? "required" : "optional"}</td>
+                              <td className={`l ${h.required ? "text-accent" : "text-dim"}`}>{h.required ? "required" : "optional"}</td>
                               <td className="l text-dim">{h.format}</td>
                             </tr>
                           ))}
@@ -289,7 +289,7 @@ export function ImportDialog() {
               <div role="radiogroup" aria-label="Read the file as" className="flex">
                 {([["trades", "BROKER / TRADE REPORT"], ["holdings", "MY HOLDINGS FILE"]] as const).map(([id, label]) => (
                   <button key={id} role="radio" aria-checked={flow === id} onClick={() => { setFlow(id); setError(null); }}
-                          className={`-ml-px border px-2 py-0.5 text-[10px] tracking-widest first:ml-0 ${flow === id ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                          className={`-ml-px border px-2 py-0.5 text-[10px] tracking-widest first:ml-0 ${flow === id ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
                     {label}
                   </button>
                 ))}
@@ -303,7 +303,7 @@ export function ImportDialog() {
           {flow === "holdings" && wb && (
             <div className="space-y-3">
               {wb.broker && (
-                <p className="text-[11px] text-amber">
+                <p className="text-[11px] text-accent">
                   This looks like a {BROKER_NAME[wb.broker] ?? "broker report"}. Its rows will be read as trades either way.
                 </p>
               )}
@@ -341,8 +341,8 @@ export function ImportDialog() {
                 </p>
               )}
               {skipped.length > 0 && (
-                <div className="border border-amber/60 p-2 text-[10.5px]">
-                  <div className="text-amber">Imported. These rows were skipped:</div>
+                <div className="border border-accent/60 p-2 text-[10.5px]">
+                  <div className="text-accent">Imported. These rows were skipped:</div>
                   <ul className="mt-1 max-h-40 list-disc overflow-auto pl-4 text-dim">
                     {skipped.map((s) => <li key={s}>{s}</li>)}
                   </ul>
@@ -361,7 +361,7 @@ export function ImportDialog() {
             <div className="space-y-3">
               <div className="flex flex-wrap items-baseline gap-x-3 text-[11px]">
                 <span className="text-dim">Read as</span>
-                <span className="text-amber">
+                <span className="text-accent">
                   {kind === "broker" && brokerChoice !== "auto"
                     ? `${BROKER_NAME[brokerChoice]} (your choice)`
                     : BROKER_NAME[preview.broker] ?? preview.broker}
@@ -369,7 +369,7 @@ export function ImportDialog() {
                 <span className="text-dim">· headings on row {preview.header_row + 1}</span>
               </div>
               {wb && isEverything(wb) && !wb.broker && (
-                <p className="text-[11px] text-amber">
+                <p className="text-[11px] text-accent">
                   This file also has holdings (bonds, deposits, pension or an Instrument type column). Read it as MY
                   HOLDINGS FILE to import those too.
                 </p>
@@ -392,7 +392,7 @@ export function ImportDialog() {
                               <td className="l">
                                 <select value={mapping[f.field] ?? ""} aria-label={`Column for ${f.label}`}
                                         onChange={(e) => setMapping((m) => ({ ...m, [f.field]: e.target.value || null }))}
-                                        className={`border bg-bg px-1 py-0.5 text-ink outline-none focus:border-amber ${bad ? "border-down" : "border-line"}`}>
+                                        className={`border bg-bg px-1 py-0.5 text-ink outline-none focus:border-accent ${bad ? "border-down" : "border-line"}`}>
                                   <option value="">— not in file —</option>
                                   {preview.headings.filter(Boolean).map((h) => <option key={h} value={h}>{h}</option>)}
                                 </select>

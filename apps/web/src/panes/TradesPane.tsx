@@ -6,8 +6,8 @@ import { useStore } from "../state/store";
 import { Seg } from "../ui";
 
 const field =
-  "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-amber";
-const ghost = "border border-line px-2 py-1 text-dim hover:border-amber hover:text-ink disabled:opacity-40";
+  "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-accent";
+const ghost = "border border-line px-2 py-1 text-dim hover:border-accent hover:text-ink disabled:opacity-40";
 
 function today(): string {
   const d = new Date();
@@ -73,7 +73,7 @@ function TradeForm({ trade, onDone }: { trade: Trade | null; onDone: () => void 
   return (
     <form onSubmit={submit} className="border-b border-line bg-raise/40 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <span className="text-[10px] tracking-widest text-amber">
+        <span className="text-[10px] tracking-widest text-accent">
           {trade ? "EDIT LEDGER ENTRY" : "RECORD A TRADE MADE ELSEWHERE"}
         </span>
         <span className="text-[10px] text-dim">Saved to your ledger only. Nothing is sent to a broker.</span>
@@ -115,7 +115,7 @@ function TradeForm({ trade, onDone }: { trade: Trade | null; onDone: () => void 
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button type="submit" disabled={saving}
-                className="border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40">
+                className="border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40">
           {saving ? "SAVING…" : trade ? "SAVE CHANGES" : "ADD TO LEDGER"}
         </button>
         <button type="button" onClick={onDone} className={ghost}>CANCEL</button>
@@ -139,7 +139,7 @@ export function TradesPane() {
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 whitespace-nowrap border-b border-line px-3 py-1.5">
         <button onClick={() => setEditing("new")}
-                className="border border-amber px-2 py-1 text-amber hover:bg-amber hover:text-black">
+                className="border border-accent px-2 py-1 text-accent hover:bg-accent hover:text-black">
           + ADD TRADE
         </button>
         <button onClick={() => exportCsv()} disabled={!trades.length} className={ghost}>EXPORT CSV</button>
@@ -155,7 +155,7 @@ export function TradesPane() {
           <div className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center">
             <div className="text-dim">No trades in the ledger</div>
             <div className="max-w-xs text-[10.5px] text-dim/70">
-              Import an Upstox, Zerodha or Groww trade report from the ribbon, or add a trade by hand.
+              Import an Upstox, Zerodha or Groww trade report with IMPORT in the top bar, or add a trade by hand.
             </div>
           </div>
         ) : (
@@ -190,7 +190,7 @@ export function TradesPane() {
                       </span>
                     ) : (
                       <span className="text-[10px]">
-                        <button className="mr-3 text-dim hover:text-amber" aria-label={`Edit trade ${t.id}`}
+                        <button className="mr-3 text-dim hover:text-accent" aria-label={`Edit trade ${t.id}`}
                                 onClick={() => setEditing(t.id)}>EDIT</button>
                         <button className="text-dim hover:text-down" aria-label={`Remove trade ${t.id}`}
                                 onClick={() => setConfirming(t.id)}>REMOVE</button>

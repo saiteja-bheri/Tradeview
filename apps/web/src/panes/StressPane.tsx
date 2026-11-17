@@ -70,16 +70,16 @@ export function StressPane() {
           OR
           <input type="number" min={-90} max={100} step={1} value={shock} aria-label="Custom market move, percent (negative = fall)"
                  onChange={(e) => setShock(Number(e.target.value))}
-                 className="w-14 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-amber" />%
+                 className="w-14 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-accent" />%
         </label>
         <Seg<number> label="OVER" value={horizon} options={HORIZONS} onChange={setHorizon} />
         <label className="flex items-center gap-1.5 text-[10px] tracking-widest text-dim"
                title="Replays crashes (2008, 2013, 2015-16, 2020, 2022) and rallies (2009, 2014, 2020-21, 2023-24). The first run downloads long price history once; it is cached after that.">
-          <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} className="accent-amber" />
+          <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} className="accent-accent" />
           PAST CRASHES & RALLIES
         </label>
         <button onClick={() => run()} disabled={busy || !hasHoldings}
-                className="ml-auto border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+                className="ml-auto border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-accent">
           {busy ? "SIMULATING…" : "RUN STRESS TEST"}
         </button>
       </div>
@@ -312,7 +312,7 @@ function Histogram({ r }: { r: StressResult }) {
             <span className="tabular-nums">
               {below ? "Lose" : "Gain"} <span className={below ? "text-down" : "text-up"}>{signed(threshold)}</span>
               {" "}({pct(threshold / total, 1)}) or {below ? "worse" : "better"}:{" "}
-              <span className="font-semibold text-amber">{pct(share, 1)}</span> of runs
+              <span className="font-semibold text-accent">{pct(share, 1)}</span> of runs
               <span className="text-dim"> · about 1 in {share && share > 0 ? Math.max(1, Math.round(1 / share)).toLocaleString("en-IN") : "—"}</span>
             </span>
             <button type="button" onClick={() => setThreshold(null)} className="text-[10px] text-dim underline hover:text-ink">CLEAR</button>
@@ -349,7 +349,7 @@ function Histogram({ r }: { r: StressResult }) {
               </g>
             ))}
             {threshold != null && threshold >= lo && threshold <= hi && (
-              <line x1={sx(threshold)} x2={sx(threshold)} y1={T - 6} y2={H - B} stroke="var(--color-amber)" strokeWidth="2" />
+              <line x1={sx(threshold)} x2={sx(threshold)} y1={T - 6} y2={H - B} stroke="var(--color-accent)" strokeWidth="2" />
             )}
           </g>
           <text x={L} y={H - 8} fontSize="9" fill="var(--color-dim)">{signed(lo)}</text>

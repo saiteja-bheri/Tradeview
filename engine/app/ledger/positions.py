@@ -110,7 +110,28 @@ def _with_quantity(t: Any, quantity: float) -> Any:
     return SimpleNamespace(**fields, quantity=quantity)
 
 
+def _paid_per_share(dividend: Any, yahoo_splits: dict[str, list[tuple[date, float]]]) -> float:
+    """Cash per share actually paid on the ex-date. Yahoo restates past dividends
+    in today's shares, so a dividend paid before a later split is listed divided
+    by that split; multiply it back. Manual and BSE dividends are entered as paid."""
+    value = float(dividend.value)
+    if getattr(dividend, "source", "manual") != "yfinance":
+        return value
+    ex = _day(dividend.ex_date)
+    for when, factor in yahoo_splits.get(dividend.symbol, []):
+        if when > ex:
+            value *= factor
+    return value
+
+
 def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, Position]:
+    actions = list(actions)
+    # Every split Yahoo knows about restates its dividends, including splits the
+    # user marked as already in their file ("skip"): Yahoo still restated.
+    yahoo_splits: dict[str, list[tuple[date, float]]] = {}
+    for a in actions:
+        if getattr(a, "source", "") == "yfinance" and a.kind in ("split", "bonus") and a.value > 0:
+            yahoo_splits.setdefault(a.symbol, []).append((_day(a.ex_date), float(a.value)))
     events: list[tuple] = []
     for a in actions:
         if getattr(a, "review", "") == "skip":
@@ -130,7 +151,7 @@ def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, 
                         lot[0] *= ev.value
                         lot[1] /= ev.value
             elif ev.kind == "dividend":
-                cash = pos.quantity * ev.value
+                cash = pos.quantity * _paid_per_share(ev, yahoo_splits)
                 pos.dividends += cash
                 if cash > EPS:
                     pos.income.append((_day(ev.ex_date), cash))

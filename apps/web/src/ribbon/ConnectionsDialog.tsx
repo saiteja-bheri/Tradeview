@@ -9,23 +9,22 @@ const PRICE_LABEL: Record<PriceSource, string> = {
 };
 
 const btn = "border px-2.5 py-1 disabled:opacity-40";
-const quiet = `${btn} border-line text-dim hover:border-amber hover:text-ink`;
-const loud = `${btn} border-amber text-amber hover:bg-amber hover:text-black disabled:hover:bg-transparent disabled:hover:text-amber`;
-const field = "min-w-0 flex-1 border border-line bg-bg px-2 py-1.5 text-ink outline-none placeholder:text-dim/60 focus:border-amber disabled:opacity-50";
+const quiet = `${btn} border-line text-dim hover:border-accent hover:text-ink`;
+const loud = `${btn} border-accent text-accent hover:bg-accent hover:text-black disabled:hover:bg-transparent disabled:hover:text-accent`;
+const field = "min-w-0 flex-1 border border-line bg-bg px-2 py-1.5 text-ink outline-none placeholder:text-dim/60 focus:border-accent disabled:opacity-50";
 
 function stateOf(s: SourceState): { text: string; cls: string } {
   if (s.kind === "data") return { text: s.experimental ? "EXPERIMENTAL" : "BUILT IN", cls: "text-dim" };
   if (!s.configured) return { text: "NOT SET UP", cls: "text-dim" };
-  if (s.session.needed && !s.session.active) return { text: "LOG IN TODAY", cls: "text-amber" };
+  if (s.session.needed && !s.session.active) return { text: "LOG IN TODAY", cls: "text-accent" };
   if (s.mismatches.length) return { text: `${s.mismatches.length} MISMATCH`, cls: "text-down" };
   return { text: "CONNECTED", cls: "text-up" };
 }
 
 /** Brokers and price sources. Credentials go straight to the engine, which keeps
  *  them in the system keychain; the UI only ever learns whether each one is set. */
-export function ConnectionsDialog() {
-  const open = useStore((s) => s.connectOpen);
-  const setOpen = useStore((s) => s.setConnectOpen);
+/** Brokers and price sources: shown inline on Settings → Connections. */
+export function ConnectionsPanel() {
   const reload = useStore((s) => s.reload);
   const liveStatus = useStore((s) => s.live?.status);
   const [state, setState] = useState<ConnectionsState | null>(null);
@@ -35,16 +34,8 @@ export function ConnectionsDialog() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    setError(null);
-    setNotice(null);
     api.connections().then(setState).catch((e) => setError((e as Error).message));
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, setOpen]);
-
-  if (!open) return null;
+  }, []);
 
   const run = async (fn: () => Promise<ConnectionsState | void>, done?: string) => {
     setBusy(true);
@@ -65,14 +56,8 @@ export function ConnectionsDialog() {
   const source = state?.sources.find((s) => s.id === selected);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-16"
-         onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
-      <div role="dialog" aria-modal="true" aria-labelledby="connect-title"
-           className="flex max-h-[84vh] w-[780px] max-w-[94vw] flex-col border border-amber bg-panel shadow-2xl">
-        <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-          <h2 id="connect-title" className="tracking-widest text-amber">CONNECTIONS</h2>
-          <button onClick={() => setOpen(false)} aria-label="Close" className="text-dim hover:text-ink">✕</button>
-        </div>
+    <div className="flex min-h-[420px] flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
 
         <div className="space-y-2 border-b border-line px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -83,7 +68,7 @@ export function ConnectionsDialog() {
                         disabled={busy || !!state?.env_override}
                         onClick={() => run(() => api.setPriceSource(p))}
                         className={`-ml-px border px-2 py-0.5 text-[11px] first:ml-0 disabled:opacity-50 ${
-                          state?.price_source === p ? "relative z-10 border-amber bg-amber text-black"
+                          state?.price_source === p ? "relative z-10 border-accent bg-accent text-black"
                             : "border-line text-dim hover:text-ink"}`}>
                   {PRICE_LABEL[p]}
                 </button>
@@ -91,7 +76,7 @@ export function ConnectionsDialog() {
             </div>
           </div>
           <div className="text-[11px]">
-            <span className={feed?.state === "error" ? "text-down" : feed?.state === "live" ? "text-up" : "text-amber"}>
+            <span className={feed?.state === "error" ? "text-down" : feed?.state === "live" ? "text-up" : "text-accent"}>
               {feedLabel(feed)}
             </span>
             {feed?.detail ? <span className="text-dim"> · {feed.detail}</span> : null}
@@ -112,7 +97,7 @@ export function ConnectionsDialog() {
                 <button key={s.id} onClick={() => { setSelected(s.id); setError(null); setNotice(null); }}
                         aria-current={selected === s.id}
                         className={`block w-full px-3 py-2 text-left ${selected === s.id ? "bg-raise" : "hover:bg-raise/60"}`}>
-                  <div className={selected === s.id ? "text-amber" : "text-ink"}>{s.label.toUpperCase()}</div>
+                  <div className={selected === s.id ? "text-accent" : "text-ink"}>{s.label.toUpperCase()}</div>
                   <div className={`text-[10px] tracking-widest ${st.cls}`}>{st.text}</div>
                 </button>
               );
@@ -229,7 +214,7 @@ function SourcePanel({ source, busy, run, onSynced, setBusy, setError }: {
             <span className="text-dim">SESSION </span>
             {source.session.active
               ? <span className="text-up">Active since {source.session.issued?.replace("T", " ").slice(0, 16)}</span>
-              : <span className="text-amber">Not logged in today (sessions end about 06:00 each morning)</span>}
+              : <span className="text-accent">Not logged in today (sessions end about 06:00 each morning)</span>}
           </div>
 
           {source.login === "redirect" && (

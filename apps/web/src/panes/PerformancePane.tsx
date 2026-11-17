@@ -21,7 +21,7 @@ const PRESETS = [
   { label: "3Y", days: 1095 }, { label: "ALL", days: 0 },
 ];
 
-const PALETTE = ["#55c8f2", "#ffb000", "#2bd47d", "#e07bd0", "#9b8cff", "#ff8f6b", "#5fd3a8", "#c98a3b"];
+const PALETTE = ["#55c8f2", "#14d9a5", "#f5c76a", "#e07bd0", "#9b8cff", "#ff8f6b", "#5fd3a8", "#c98a3b"];
 const GROUP_ORDER = ["Retirement", "Deposits", "Insurance", "Cash", "Other"];
 
 function cssVar(name: string, fallback: string): string {
@@ -94,7 +94,7 @@ export function PerformancePane() {
       <div className="flex flex-wrap items-center gap-1 border-b border-line px-3 py-1.5">
         {VIEWS.map((v) => (
           <button key={v.value} onClick={() => setView(v.value)} title={v.hint} aria-pressed={view === v.value}
-                  className={`border px-1.5 py-0.5 text-[10px] tracking-widest ${view === v.value ? "border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                  className={`border px-1.5 py-0.5 text-[10px] tracking-widest ${view === v.value ? "border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
             {v.label}
           </button>
         ))}
@@ -121,8 +121,8 @@ function Chart({ dates, lines, view }: { dates: string[]; lines: Line[]; view: V
 
   useEffect(() => {
     if (!box.current) return;
-    const dim = cssVar("--color-dim", "#7b8492"), line = cssVar("--color-line", "#1f242d");
-    const bg = cssVar("--color-panel", "#0d0f13"), raise = cssVar("--color-raise", "#151920");
+    const dim = cssVar("--color-dim", "#7b8492"), line = cssVar("--color-line", "#232a33");
+    const bg = cssVar("--color-panel", "#12161b"), raise = cssVar("--color-raise", "#1a2027");
     const chart = createChart(box.current, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: bg }, textColor: dim, fontSize: 11 },
@@ -140,8 +140,8 @@ function Chart({ dates, lines, view }: { dates: string[]; lines: Line[]; view: V
       if (view === "gain") {
         const s = chart.addBaselineSeries({
           baseValue: { type: "price", price: 0 }, lineWidth: 2, priceLineVisible: false,
-          topLineColor: cssVar("--color-up", "#2bd47d"), topFillColor1: "rgba(43,212,125,0.28)", topFillColor2: "rgba(43,212,125,0.02)",
-          bottomLineColor: cssVar("--color-down", "#ff5263"), bottomFillColor1: "rgba(255,82,99,0.02)", bottomFillColor2: "rgba(255,82,99,0.28)",
+          topLineColor: cssVar("--color-up", "#14d9a5"), topFillColor1: "rgba(20,217,165,0.28)", topFillColor2: "rgba(20,217,165,0.02)",
+          bottomLineColor: cssVar("--color-down", "#ff4d6d"), bottomFillColor1: "rgba(255,77,109,0.02)", bottomFillColor2: "rgba(255,77,109,0.28)",
         });
         s.setData(points);
       } else if (l.kind === "area") {
@@ -203,14 +203,14 @@ function Chart({ dates, lines, view }: { dates: string[]; lines: Line[]; view: V
         ))}
         {(view === "networth" || view === "classes") && (
           <span className="flex items-center gap-1 text-[11px]">
-            <span className="text-dim">Total</span><span className="tabular-nums text-amber">{inr(lines[0]?.values[at])}</span>
+            <span className="text-dim">Total</span><span className="tabular-nums text-accent">{inr(lines[0]?.values[at])}</span>
           </span>
         )}
         <span className="text-[10.5px] text-dim">{dates[at]}</span>
         <span className="ml-auto flex">
           {PRESETS.map((p) => (
             <button key={p.label} onClick={() => show(p.days ? shiftDays(last, p.days) : first, last, p.label)}
-                    className={`-ml-px border px-1.5 py-0.5 text-[10px] first:ml-0 ${preset === p.label ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                    className={`-ml-px border px-1.5 py-0.5 text-[10px] first:ml-0 ${preset === p.label ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
               {p.label}
             </button>
           ))}
@@ -219,11 +219,11 @@ function Chart({ dates, lines, view }: { dates: string[]; lines: Line[]; view: V
       <div className="flex flex-wrap items-center gap-2 px-3 pb-1.5 text-[10px] tracking-widest text-dim">
         <label className="flex items-center gap-1">FROM
           <input type="date" value={from} min={first} max={to} onChange={(e) => show(e.target.value, to)}
-                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber" />
+                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-accent" />
         </label>
         <label className="flex items-center gap-1">TO
           <input type="date" value={to} min={from} max={last} onChange={(e) => show(from, e.target.value)}
-                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber" />
+                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-accent" />
         </label>
         {view !== "gain" && view !== "networth" && view !== "classes" && startV && endV ? (
           <span className={`normal-case tracking-normal ${tone(endV - startV)}`}>

@@ -21,7 +21,7 @@ export function RiskPane() {
           {p.live && <span className="ml-2 text-up" title="Every figure below counts today's live prices as a provisional day; recomputed about once a minute">● LIVE</span>}
         </div>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-2xl font-semibold text-amber">
+          <span className="text-2xl font-semibold text-accent">
             <Flash value={m?.var}>{inr(m?.var)}</Flash>
           </span>
           <span className="text-dim">{pct(m?.var_pct)} of value</span>
@@ -81,7 +81,7 @@ export function RiskPane() {
             <div key={h.symbol} className="mb-1.5 grid grid-cols-[72px_1fr_64px] items-center gap-2">
               <span className="truncate text-cyan">{ticker(h.symbol)}</span>
               <div className="h-1.5 bg-raise">
-                <div className="h-full bg-amber"
+                <div className="h-full bg-accent"
                      style={{ width: `${(Math.abs(h.component_var!) / maxVar) * 100}%` }} />
               </div>
               <span className="text-right">{signed(h.component_var)}</span>
@@ -106,7 +106,7 @@ export function RiskPane() {
 }
 
 /** Trading days of history used for beta, alpha, Sharpe, Sortino, drawdown, volatility and VaR. */
-const LOOKBACKS = [
+export const LOOKBACKS = [
   { value: 21, label: "1M" }, { value: 63, label: "3M" }, { value: 126, label: "6M" },
   { value: 252, label: "1Y" }, { value: 504, label: "2Y" }, { value: 756, label: "3Y" },
   { value: 1260, label: "5Y" },

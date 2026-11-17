@@ -10,7 +10,7 @@ const LOOKBACKS = [{ value: 126, label: "6M" }, { value: 252, label: "1Y" }, { v
                    { value: 756, label: "3Y" }, { value: 1260, label: "5Y" }];
 type ColKey = keyof OptimizerResult["portfolios"] | "picked";
 const COLS: { key: ColKey; label: string; title: string; color: string }[] = [
-  { key: "max_sharpe", label: "MAX SHARPE", title: "Best return per unit of risk (uses historical returns)", color: "var(--color-amber)" },
+  { key: "max_sharpe", label: "MAX SHARPE", title: "Best return per unit of risk (uses historical returns)", color: "var(--color-accent)" },
   { key: "target", label: "TARGET", title: "Your return or risk target", color: "#c792ea" },
   { key: "picked", label: "PICKED", title: "The frontier point you clicked", color: "var(--color-cyan)" },
   { key: "min_variance", label: "MIN RISK", title: "Lowest volatility; ignores expected returns", color: "var(--color-up)" },
@@ -33,7 +33,7 @@ function PctInput({ label, value, onChange, title, min = 0, max = 100, step = 1,
       <input type="number" min={min} max={max} step={step} value={value == null ? "" : +(value * 100).toFixed(2)}
              aria-label={`${label}, percent`}
              onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value) / 100)}
-             className={`${width} border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-amber`} />%
+             className={`${width} border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-accent`} />%
     </label>
   );
 }
@@ -107,7 +107,7 @@ export function OptimizerPane() {
                     onChange={(v) => { setScope(v); setExclude([]); setResult(null); setError(null); }} />
         <Seg<number> label="HISTORY" value={lookback} options={LOOKBACKS} onChange={setLookback} />
         <button onClick={run} disabled={busy || count < 2}
-                className="ml-auto border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+                className="ml-auto border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-accent">
           {busy ? "OPTIMISING…" : `RUN · ${count} ${count === 1 ? "STOCK" : "STOCKS"}`}
         </button>
       </div>
@@ -131,7 +131,7 @@ export function OptimizerPane() {
                                                    : "Highest-return mix with at most this annual volatility"} />
         )}
         <label className="flex items-center gap-1.5 text-[10px] tracking-widest text-dim" title="Re-run automatically when a setting changes">
-          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-amber" />
+          <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-accent" />
           AUTO
         </label>
       </div>
@@ -175,7 +175,7 @@ export function OptimizerPane() {
                           {w > 0.0005 ? (
                             <span className="inline-flex items-center justify-end gap-1.5">
                               <span className="inline-block h-1.5 bg-current opacity-60" style={{ width: `${Math.round(w * 36)}px`, color: c.color }} />
-                              <span className={c.key === "max_sharpe" ? "text-amber" : "text-ink"}>{pct(w, 1)}</span>
+                              <span className={c.key === "max_sharpe" ? "text-accent" : "text-ink"}>{pct(w, 1)}</span>
                             </span>
                           ) : <span className="text-dim/50">·</span>}
                         </td>
@@ -204,7 +204,7 @@ export function OptimizerPane() {
               LEFT OUT
               {exclude.map((s) => (
                 <button key={s} onClick={() => setExclude((x) => x.filter((y) => y !== s))} title="Put back"
-                        className="border border-line px-1.5 py-0.5 text-ink hover:border-amber">{ticker(s)} ×</button>
+                        className="border border-line px-1.5 py-0.5 text-ink hover:border-accent">{ticker(s)} ×</button>
               ))}
             </div>
           )}
@@ -266,7 +266,7 @@ function Frontier({ r, picked, onPick }: { r: OptimizerResult; picked: FrontierP
     ? { x2: x1, y2: r.risk_free_rate + ((ms.return - r.risk_free_rate) / ms.volatility) * x1 } : null;
 
   const marks: { key: keyof OptimizerResult["portfolios"]; label: string; color: string }[] = [
-    { key: "max_sharpe", label: "MAX SHARPE", color: "var(--color-amber)" },
+    { key: "max_sharpe", label: "MAX SHARPE", color: "var(--color-accent)" },
     { key: "target", label: "TARGET", color: "#c792ea" },
     { key: "min_variance", label: "MIN RISK", color: "var(--color-up)" },
     { key: "equal_weight", label: "EQUAL", color: "var(--color-ink)" },
@@ -299,13 +299,13 @@ function Frontier({ r, picked, onPick }: { r: OptimizerResult; picked: FrontierP
           <input type="range" min={0} max={Math.max(r.frontier.length - 1, 0)} step={1} value={idx >= 0 ? idx : 0}
                  aria-label="Risk appetite: position along the efficient frontier"
                  onChange={(e) => onPick(r.frontier[Number(e.target.value)] ?? null)}
-                 className="w-40 accent-amber" />
+                 className="w-40 accent-accent" />
           <span className="text-down">HIGH</span>
         </label>
         {picked && (
           <span className="normal-case tracking-normal tabular-nums">
             picked: return <span className="text-ink">{pct(picked.return, 1)}</span> · vol <span className="text-ink">{pct(picked.volatility, 1)}</span>
-            {" "}· Sharpe <span className="text-amber">{num(picked.sharpe)}</span>
+            {" "}· Sharpe <span className="text-accent">{num(picked.sharpe)}</span>
           </span>
         )}
         <ZoomHint zoomed={z.zoomed} reset={z.reset} />
@@ -350,9 +350,9 @@ function Frontier({ r, picked, onPick }: { r: OptimizerResult; picked: FrontierP
         <g clipPath="url(#frontier-clip)">
         {cml && (
           <line className="tw" x1={sx(0)} y1={sy(r.risk_free_rate)} x2={sx(cml.x2)} y2={sy(cml.y2)}
-                stroke="var(--color-amber)" strokeOpacity="0.5" strokeDasharray="4 3" strokeWidth="1" />
+                stroke="var(--color-accent)" strokeOpacity="0.5" strokeDasharray="4 3" strokeWidth="1" />
         )}
-        <circle className="tw" cx={sx(0)} cy={sy(r.risk_free_rate)} r="2.5" fill="var(--color-amber)" opacity="0.7" />
+        <circle className="tw" cx={sx(0)} cy={sy(r.risk_free_rate)} r="2.5" fill="var(--color-accent)" opacity="0.7" />
         {r.frontier.slice(1).map((f, i) => {
           const a = r.frontier[i];
           return <line key={i} className="tw" x1={sx(a.volatility)} y1={sy(a.return)} x2={sx(f.volatility)} y2={sy(f.return)}
@@ -387,7 +387,7 @@ function Frontier({ r, picked, onPick }: { r: OptimizerResult; picked: FrontierP
                       transform: `translate(${hover.x > W * 0.6 ? "calc(-100% - 10px)" : "10px"}, -50%)` }}>
           <div className="mb-0.5 font-semibold" style={{ color: hover.color }}>{hover.title}</div>
           <div className="tabular-nums">Return {pct(hover.p.return, 1)} · Vol {pct(hover.p.volatility, 1)}</div>
-          <div className="tabular-nums">Sharpe <span className="text-amber">{num(hover.p.sharpe ??
+          <div className="tabular-nums">Sharpe <span className="text-accent">{num(hover.p.sharpe ??
             (hover.p.volatility > 0 ? (hover.p.return - r.risk_free_rate) / hover.p.volatility : null))}</span></div>
           {top(hover.p.weights).length > 0 && (
             <div className="mt-1 border-t border-line pt-1">

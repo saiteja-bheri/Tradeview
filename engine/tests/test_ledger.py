@@ -73,3 +73,41 @@ def test_action_before_purchase_does_not_apply_and_oversell_warns():
     assert pos.dividends == 0 and pos.quantity == pytest.approx(0)
     assert pos.realized_pnl == pytest.approx(100.0)
     assert len(pos.warnings) == 1
+
+
+def test_yahoo_dividend_before_a_later_split_counts_the_cash_actually_paid():
+    """Yahoo restates past dividends in post-split shares (a ₹5 dividend before a
+    2:1 split is listed as ₹2.50), but the ledger holds the pre-split quantity on
+    that date. Income must be the cash actually received: 40 shares x ₹5."""
+    def yahoo(sym, when, kind, value):
+        return NS(symbol=sym, ex_date=when, kind=kind, value=value, source="yfinance")
+
+    trades = [trade("X", datetime(2025, 1, 1, 10), "BUY", 40, 200.0)]
+    actions = [
+        yahoo("X", date(2025, 2, 1), "dividend", 2.5),     # paid ₹5 on 40 shares
+        yahoo("X", date(2025, 3, 1), "split", 2.0),        # 40 -> 80
+        yahoo("X", date(2025, 4, 1), "dividend", 1.0),     # after the split: ₹1 on 80 shares
+    ]
+    pos = build_positions(trades, actions)["X"]
+    assert pos.quantity == pytest.approx(80)
+    assert pos.dividends == pytest.approx(40 * 5.0 + 80 * 1.0)
+    assert pos.income == [(date(2025, 2, 1), pytest.approx(200.0)), (date(2025, 4, 1), pytest.approx(80.0))]
+
+
+def test_manual_dividends_are_taken_as_paid_even_before_a_split():
+    trades = [trade("X", datetime(2025, 1, 1, 10), "BUY", 40, 200.0)]
+    actions = [
+        NS(symbol="X", ex_date=date(2025, 2, 1), kind="dividend", value=5.0, source="manual"),
+        NS(symbol="X", ex_date=date(2025, 3, 1), kind="split", value=2.0, source="yfinance"),
+    ]
+    assert build_positions(trades, actions)["X"].dividends == pytest.approx(200.0)
+
+
+def test_iso_dates_are_not_read_day_first():
+    """A plain trade file with YYYY-MM-DD dates is read by the Upstox parser;
+    2025-03-05 is 5 March, not 3 May."""
+    from app.ledger import upstox
+
+    text = "Date,Symbol,Exchange,Side,Quantity,Price,Trade ID\n2025-03-05,INFY,NSE,BUY,10,1500,T1\n05-03-2025,TCS,NSE,BUY,1,4000,T2\n"
+    trades = upstox.parse(text).trades
+    assert [t.traded_at.date() for t in trades] == [date(2025, 3, 5), date(2025, 3, 5)]

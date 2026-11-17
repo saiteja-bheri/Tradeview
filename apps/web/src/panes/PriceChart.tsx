@@ -63,7 +63,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
         <div className="text-dim">{ticker(symbol)} is in your history only, so its prices are not saved.</div>
         <div className="flex flex-wrap justify-center gap-2">
           <button onClick={() => load(true)} disabled={loading}
-                  className="border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40">
+                  className="border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40">
             {loading ? "LOADING…" : "SHOW CHART (NOT SAVED)"}
           </button>
           <button onClick={() => toggleWatch(symbol)}
@@ -94,10 +94,10 @@ function Chart({ symbol, bars, currency, saved }: { symbol: string; bars: Bar[];
 
   useEffect(() => {
     if (!box.current) return;
-    const dim = cssVar("--color-dim", "#7b8492"), raise = cssVar("--color-raise", "#151920");
-    const line = cssVar("--color-line", "#1f242d"), bg = cssVar("--color-panel", "#0d0f13");
+    const dim = cssVar("--color-dim", "#7b8492"), raise = cssVar("--color-raise", "#1a2027");
+    const line = cssVar("--color-line", "#232a33"), bg = cssVar("--color-panel", "#12161b");
     const up = bars[bars.length - 1].value >= bars[0].value;
-    const color = cssVar(up ? "--color-up" : "--color-down", up ? "#2bd47d" : "#ff5263");
+    const color = cssVar(up ? "--color-up" : "--color-down", up ? "#14d9a5" : "#ff4d6d");
     const chart = createChart(box.current, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: bg }, textColor: dim, fontSize: 11 },
@@ -155,7 +155,7 @@ function Chart({ symbol, bars, currency, saved }: { symbol: string; bars: Bar[];
           {PRESETS.map((p) => (
             <button key={p.label}
                     onClick={() => show(p.days ? shiftDays(last, p.days) : first, last, p.label)}
-                    className={`-ml-px border px-1.5 py-0.5 text-[10px] first:ml-0 ${preset === p.label ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                    className={`-ml-px border px-1.5 py-0.5 text-[10px] first:ml-0 ${preset === p.label ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
               {p.label}
             </button>
           ))}
@@ -164,11 +164,11 @@ function Chart({ symbol, bars, currency, saved }: { symbol: string; bars: Bar[];
       <div className="flex flex-wrap items-center gap-2 px-3 pb-1.5 text-[10px] tracking-widest text-dim">
         <label className="flex items-center gap-1">FROM
           <input type="date" value={from} min={first} max={to} onChange={(e) => show(e.target.value, to)}
-                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber" />
+                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-accent" />
         </label>
         <label className="flex items-center gap-1">TO
           <input type="date" value={to} min={from} max={last} onChange={(e) => show(from, e.target.value)}
-                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber" />
+                 className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-accent" />
         </label>
         <span className="ml-auto normal-case tracking-normal">
           {inView.length} of {bars.length} days · drag to pan, scroll to zoom

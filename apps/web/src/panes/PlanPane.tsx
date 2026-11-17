@@ -116,7 +116,7 @@ export function PlanPane() {
             <input type="number" min={0} step={freq === "daily" ? 10 : freq === "weekly" ? 100 : 500} value={sip}
                    onChange={(e) => setSipPlan({ freq, amount: Math.max(0, Number(e.target.value)) })}
                    aria-label={`SIP amount per ${fq.unit.toLowerCase()} in rupees`}
-                   className="w-24 border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-amber" />
+                   className="w-24 border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-accent" />
           </label>
           <span className="text-[10px] text-dim tabular-nums" title="The same money expressed per month and per year (first year)">
             = {inr((sip * fq.per) / 12)} / month · {inr(sip * fq.per)} / year{freq === "daily" ? " (250 market days)" : ""}
@@ -126,7 +126,7 @@ export function PlanPane() {
             STEP-UP %/YR
             <input type="number" min={0} max={50} step={1} value={stepUp} onChange={(e) => setStepUp(Math.max(0, Number(e.target.value)))}
                    aria-label="Yearly step-up in percent"
-                   className="w-14 border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-amber" />
+                   className="w-14 border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-accent" />
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -135,7 +135,7 @@ export function PlanPane() {
           <Seg<Interval> label="SHOW EVERY" value={interval} options={INTERVALS} onChange={setInterval} />
           <label className="flex items-center gap-1.5 text-[10px] tracking-widest text-dim"
                  title="Grow deposits, PPF/EPF/NPS, pension and insurance values alongside, at their own rates">
-            <input type="checkbox" checked={withWealth} onChange={(e) => setWithWealth(e.target.checked)} className="accent-amber" />
+            <input type="checkbox" checked={withWealth} onChange={(e) => setWithWealth(e.target.checked)} className="accent-accent" />
             INCLUDE DEPOSITS, PENSION, INSURANCE
           </label>
         </div>
@@ -161,8 +161,8 @@ export function PlanPane() {
       ) : (
         <>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] border-b border-line">
-            <Tile label={`LIKELY VALUE IN ${a.years}Y`} value={inr(s.median)} cls="text-amber" big />
-            <Tile label="LIKELY, AFTER TAX IF SOLD" value={inr(s.median_after_tax)} cls="text-amber" big />
+            <Tile label={`LIKELY VALUE IN ${a.years}Y`} value={inr(s.median)} cls="text-accent" big />
+            <Tile label="LIKELY, AFTER TAX IF SOLD" value={inr(s.median_after_tax)} cls="text-accent" big />
             <Tile label="YOU WILL HAVE PUT IN" value={inr(s.invested_total)} />
             <Tile label="BAD CASE (1 IN 10)" value={inr(s.bad_case)} cls="text-down" />
             <Tile label="GOOD CASE (1 IN 10)" value={inr(s.good_case)} cls="text-up" />
@@ -173,8 +173,8 @@ export function PlanPane() {
             {hasOther ? (
               <>
                 <Tile label="DEPOSITS, PENSION, INSURANCE THEN" value={inr(s.other_assets)} />
-                <Tile label="TOTAL WEALTH (LIKELY)" value={inr(s.total_median)} cls="text-amber" />
-                <Tile label="TOTAL WEALTH, AFTER TAX" value={inr(s.total_median_after_tax)} cls="text-amber" />
+                <Tile label="TOTAL WEALTH (LIKELY)" value={inr(s.total_median)} cls="text-accent" />
+                <Tile label="TOTAL WEALTH, AFTER TAX" value={inr(s.total_median_after_tax)} cls="text-accent" />
               </>
             ) : (
               <>
@@ -206,7 +206,7 @@ export function PlanPane() {
                     <td className="r tabular-nums text-dim">{inr(p.p50_after_tax)}</td>
                     <td className="r tabular-nums text-up">{inr(p.p90)}</td>
                     {hasOther && <><td className="r tabular-nums text-dim">{inr(p.other)}</td>
-                      <td className="r tabular-nums text-amber">{inr(p.total_p50)}</td></>}
+                      <td className="r tabular-nums text-accent">{inr(p.total_p50)}</td></>}
                   </tr>
                 ))}
               </tbody>
@@ -246,7 +246,7 @@ function Num({ label, value, onChange, max, step, width, title }: {
       {label}
       <input type="number" min={0} max={max} step={step} value={value} aria-label={label}
              onChange={(e) => onChange(Math.min(max, Math.max(0, Number(e.target.value) || 0)))}
-             className={`${width} border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-amber`} />
+             className={`${width} border border-line bg-bg px-1.5 py-0.5 text-right text-ink outline-none focus:border-accent`} />
     </label>
   );
 }
@@ -283,7 +283,7 @@ function FanChart({ r }: { r: ProjectionResult }) {
   const off = (p: ProjectionPoint) => (hasOther && show.other ? p.other : 0);
   const series: { key: keyof typeof show; label: string; color: string; get: (p: ProjectionPoint) => number; dash?: string }[] = [
     { key: "likely", label: "likely", color: "var(--color-cyan)", get: (p) => p.p50 + off(p) },
-    { key: "after", label: "likely after tax", color: "var(--color-amber)", get: (p) => p.p50_after_tax + off(p), dash: "5 3" },
+    { key: "after", label: "likely after tax", color: "var(--color-accent)", get: (p) => p.p50_after_tax + off(p), dash: "5 3" },
     { key: "putin", label: "put in", color: "var(--color-dim)", get: (p) => p.invested + (hasOther && show.other ? p.other_invested : 0), dash: "4 3" },
     ...(hasOther ? [{ key: "other" as const, label: "deposits, pension, insurance", color: "#e07bd0", get: (p: ProjectionPoint) => p.other, dash: "2 3" }] : []),
   ];
@@ -342,7 +342,7 @@ function FanChart({ r }: { r: ProjectionResult }) {
           <input type="number" min={0} step={100000} value={goal || ""} placeholder="none" aria-label="Goal amount in rupees"
                  onChange={(e) => { const v = Math.max(0, Number(e.target.value) || 0); setGoal(v);
                                     try { localStorage.setItem("qt.plan.goal", String(v)); } catch { /* optional */ } }}
-                 className="w-28 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-amber" />
+                 className="w-28 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-accent" />
         </label>
         {goal > 0 && (
           <span className="normal-case tracking-normal">
@@ -399,7 +399,7 @@ function FanChart({ r }: { r: ProjectionResult }) {
             <div className="grid grid-cols-[auto_auto] gap-x-3 tabular-nums">
               <span className="text-up">Good case</span><span className="text-right">{inr(hp.p90 + off(hp))}</span>
               <span className="text-cyan">Likely</span><span className="text-right">{inr(hp.p50 + off(hp))}</span>
-              <span className="text-amber">After tax</span><span className="text-right">{inr(hp.p50_after_tax + off(hp))}</span>
+              <span className="text-accent">After tax</span><span className="text-right">{inr(hp.p50_after_tax + off(hp))}</span>
               <span className="text-down">Bad case</span><span className="text-right">{inr(hp.p10 + off(hp))}</span>
               <span className="text-dim">Put in</span><span className="text-right">{inr(hp.invested + (hasOther ? hp.other_invested : 0))}</span>
               {hasOther && <><span style={{ color: "#e07bd0" }}>Other assets</span><span className="text-right">{inr(hp.other)}</span></>}

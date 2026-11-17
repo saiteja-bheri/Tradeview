@@ -8,11 +8,11 @@ import { Empty } from "../ui";
 type Scope = "all" | "portfolio" | "watchlist";
 
 const KIND: Record<string, { label: string; cls: string }> = {
-  earnings: { label: "RESULTS", cls: "text-amber" },
+  earnings: { label: "RESULTS", cls: "text-accent" },
   ex_dividend: { label: "EX-DIV", cls: "text-up" },
   dividend: { label: "DIVIDEND", cls: "text-up" },
-  split: { label: "SPLIT", cls: "text-amber" },
-  bonus: { label: "BONUS", cls: "text-amber" },
+  split: { label: "SPLIT", cls: "text-accent" },
+  bonus: { label: "BONUS", cls: "text-accent" },
   coupon: { label: "COUPON", cls: "text-up" },
   maturity: { label: "MATURES", cls: "text-cyan" },
   check: { label: "CHECK", cls: "text-down" },
@@ -52,7 +52,7 @@ function saveHidden(s: Set<string>) {
 }
 
 /** Which sources are downloaded at all. Switched-off sources cost no downloads. */
-function SourcesPanel({ onSaved, onClose }: { onSaved: () => void; onClose: () => void }) {
+export function SourcesPanel({ onSaved, onClose }: { onSaved: () => void; onClose?: () => void }) {
   const [list, setList] = useState<NewsSource[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -74,7 +74,7 @@ function SourcesPanel({ onSaved, onClose }: { onSaved: () => void; onClose: () =
     <div className="border-b border-line bg-raise/40 px-3 py-2 text-[11px]">
       <div className="flex items-baseline gap-2">
         <span className="text-[10px] tracking-widest text-dim">DOWNLOAD NEWS FROM</span>
-        <button onClick={onClose} className="ml-auto text-[10.5px] text-dim underline hover:text-ink">close</button>
+        {onClose && <button onClick={onClose} className="ml-auto text-[10.5px] text-dim underline hover:text-ink">close</button>}
       </div>
       {error && <div role="alert" className="text-down">{error}</div>}
       <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1">
@@ -83,7 +83,7 @@ function SourcesPanel({ onSaved, onClose }: { onSaved: () => void; onClose: () =
             <div className="text-[9.5px] tracking-widest text-dim">{r.toUpperCase()}</div>
             {(list ?? []).filter((s) => s.region === r).map((s) => (
               <label key={s.id} className="flex items-center gap-1.5">
-                <input type="checkbox" checked={s.enabled} onChange={() => toggle(s.id)} className="accent-amber" />
+                <input type="checkbox" checked={s.enabled} onChange={() => toggle(s.id)} className="accent-accent" />
                 <span>{s.label}</span>
                 <span className="text-[10px] text-dim">{s.kind === "symbol" ? "searched per stock" : "matched to your stocks"}</span>
               </label>
@@ -150,13 +150,13 @@ export function NewsPane() {
         <div role="radiogroup" aria-label="News for" className="flex">
           {(["all", "portfolio", "watchlist"] as const).map((s) => (
             <button key={s} role="radio" aria-checked={scope === s} onClick={() => setScope(s)}
-                    className={`-ml-px border px-1.5 py-0.5 text-[10px] tracking-widest first:ml-0 ${scope === s ? "relative z-10 border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
+                    className={`-ml-px border px-1.5 py-0.5 text-[10px] tracking-widest first:ml-0 ${scope === s ? "relative z-10 border-accent bg-accent text-black" : "border-line text-dim hover:text-ink"}`}>
               {s === "all" ? "ALL" : s === "portfolio" ? "PORTFOLIO" : "WATCHLIST"}
             </button>
           ))}
         </div>
         <select value={only ?? ""} onChange={(e) => setOnly(e.target.value || null)} aria-label="Only this stock"
-                className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-amber">
+                className="border border-line bg-bg px-1 py-0.5 text-[11px] text-ink outline-none focus:border-accent">
           <option value="">Every stock</option>
           {(feed?.covered ?? []).map((c) => (
             <option key={c.symbol} value={c.symbol}>{c.why === "market" ? "Market" : ticker(c.symbol)}{c.name ? ` · ${c.name}` : ""}</option>
@@ -166,11 +166,11 @@ export function NewsPane() {
           {feed?.updated_at ? `updated ${ago(feed.updated_at)}` : ""}
         </span>
         <button onClick={() => setSettings(!settings)} aria-expanded={settings}
-                className={`border px-2 py-0.5 text-[10px] hover:text-ink ${settings ? "border-amber text-amber" : "border-line text-dim hover:border-amber"}`}>
+                className={`border px-2 py-0.5 text-[10px] hover:text-ink ${settings ? "border-accent text-accent" : "border-line text-dim hover:border-accent"}`}>
           SOURCES
         </button>
         <button onClick={() => load(true)} disabled={busy}
-                className="border border-line px-2 py-0.5 text-[10px] text-dim hover:border-amber hover:text-ink disabled:opacity-40">
+                className="border border-line px-2 py-0.5 text-[10px] text-dim hover:border-accent hover:text-ink disabled:opacity-40">
           {busy ? "LOADING…" : "REFRESH"}
         </button>
       </div>
@@ -243,7 +243,7 @@ export function NewsPane() {
                     </div>
                     {n.url ? (
                       <a href={n.url} target="_blank" rel="noreferrer noopener"
-                         className="mt-0.5 block text-[12px] text-ink hover:text-amber hover:underline">
+                         className="mt-0.5 block text-[12px] text-ink hover:text-accent hover:underline">
                         {n.title}
                       </a>
                     ) : (
@@ -255,7 +255,7 @@ export function NewsPane() {
               </ul>
             )}
             {feed && feed.errors.length > 0 && (
-              <p className="px-3 py-2 text-[10px] text-amber">Could not refresh: {feed.errors.join("; ")}</p>
+              <p className="px-3 py-2 text-[10px] text-accent">Could not refresh: {feed.errors.join("; ")}</p>
             )}
             <p className="px-3 py-2 text-[10px] text-dim">
               Headlines from {enabled.map((s) => s.label).join(", ") || "no sources (turn some on under SOURCES)"};

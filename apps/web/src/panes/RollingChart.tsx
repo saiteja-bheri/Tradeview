@@ -11,11 +11,11 @@ const SPANS = [{ value: 252, label: "1Y" }, { value: 504, label: "2Y" }, { value
 
 /** Ratios share the right scale; percentages get the left one. */
 const METRICS: { key: RollingKey; label: string; color: string; percent: boolean; title: string }[] = [
-  { key: "sharpe", label: "SHARPE", color: "#ffb000", percent: false, title: "Excess return per unit of total risk, annualised" },
+  { key: "sharpe", label: "SHARPE", color: "#14d9a5", percent: false, title: "Excess return per unit of total risk, annualised" },
   { key: "sortino", label: "SORTINO", color: "#c792ea", percent: false, title: "Excess return per unit of downside risk, annualised" },
   { key: "beta", label: "BETA", color: "#55c8f2", percent: false, title: "Sensitivity to the benchmark" },
-  { key: "volatility", label: "VOL", color: "#ff5263", percent: true, title: "Annualised volatility" },
-  { key: "alpha", label: "ALPHA", color: "#2bd47d", percent: true, title: "Jensen's alpha, annualised" },
+  { key: "volatility", label: "VOL", color: "#ff4d6d", percent: true, title: "Annualised volatility" },
+  { key: "alpha", label: "ALPHA", color: "#9b8cff", percent: true, title: "Jensen's alpha, annualised" },
   { key: "return", label: "RETURN", color: "#f78c6c", percent: true, title: "Compound annual return over the window" },
 ];
 
@@ -78,8 +78,8 @@ export function RollingChart() {
   // One chart for the pane's lifetime, so live updates keep your zoom.
   useEffect(() => {
     if (!box.current) return;
-    const dim = cssVar("--color-dim", "#7b8492"), raise = cssVar("--color-raise", "#151920");
-    const line = cssVar("--color-line", "#1f242d"), bg = cssVar("--color-panel", "#0d0f13");
+    const dim = cssVar("--color-dim", "#7b8492"), raise = cssVar("--color-raise", "#1a2027");
+    const line = cssVar("--color-line", "#232a33"), bg = cssVar("--color-panel", "#12161b");
     const chart = createChart(box.current, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: bg }, textColor: dim, fontSize: 10 },
@@ -144,7 +144,7 @@ export function RollingChart() {
     if (sharpe) {
       if (targetLine.current) sharpe.removePriceLine(targetLine.current);
       targetLine.current = sharpe.createPriceLine({
-        price: target, color: "#ffb000", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "TARGET",
+        price: target, color: "#e6e9ee", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "TARGET",
       });
     }
     if (!fitted.current && data.dates.length) {
@@ -200,7 +200,7 @@ export function RollingChart() {
           SHARPE TARGET
           <input type="number" step={0.1} value={target} aria-label="Sharpe target"
                  onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v)) { setTarget(v); save("qt.rolling.target", v); } }}
-                 className="w-14 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-amber" />
+                 className="w-14 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-accent" />
         </label>
       </div>
       <div className="flex min-h-[18px] flex-wrap gap-x-3 px-3 pt-1 text-[10.5px] tabular-nums">
@@ -215,7 +215,7 @@ export function RollingChart() {
           </>
         ) : stats ? (
           <>
-            <span>SHARPE now <span className="text-amber">{num(stats.last)}</span></span>
+            <span>SHARPE now <span className="text-accent">{num(stats.last)}</span></span>
             <span className="text-dim">high {num(stats.max)} · low {num(stats.min)} · avg {num(stats.mean)}</span>
             <span className="text-dim">≥ target on {pct(stats.above, 0)} of days</span>
           </>

@@ -95,7 +95,7 @@ export function StockTable({ rows, showCache = false, onRemove }: {
                 <button onClick={() => toggleStar(w.symbol, w.name)} aria-pressed={m.starred}
                         aria-label={m.starred ? `Unstar ${w.symbol}` : `Star ${w.symbol}`}
                         title={m.starred ? "Starred for the optimizer" : "Star for the optimizer"}
-                        className={`ml-1.5 ${m.starred ? "text-amber" : "text-dim hover:text-amber"}`}>
+                        className={`ml-1.5 ${m.starred ? "text-accent" : "text-dim hover:text-accent"}`}>
                   {m.starred ? "★" : "☆"}
                 </button>
               </td>

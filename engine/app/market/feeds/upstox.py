@@ -23,13 +23,19 @@ INSTRUMENTS_URL = "https://assets.upstox.com/market-quote/instruments/exchange/{
 SEGMENTS = {"NS": ("NSE", "NSE_EQ"), "BO": ("BSE", "BSE_EQ")}
 
 
+# Upstox's API sits behind Cloudflare, which refuses Python's default
+# "Python-urllib" signature with error 1010 before Upstox sees the token.
+USER_AGENT = "QuantTerminal/0.5 (read-only analytics)"
+
+
 class FeedAuthError(RuntimeError):
     retry_seconds = 60.0
 
 
 def _get(url: str, headers: dict[str, str] | None = None, timeout: float = 30) -> bytes:
     """The only way this module talks to Upstox: a plain GET."""
-    request = urllib.request.Request(url, headers=headers or {}, method="GET")
+    headers = {"User-Agent": USER_AGENT, **(headers or {})}
+    request = urllib.request.Request(url, headers=headers, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as res:
         return res.read()
 
@@ -84,15 +90,25 @@ class UpstoxFeed:
 
     def _authorize(self) -> str:
         if not self._token:
-            raise FeedAuthError("No Upstox token set. Add your Analytics Token under UPSTOX in the ribbon.")
+            raise FeedAuthError("No Upstox token set. Add your Analytics Token under Settings → Connections → Upstox.")
         headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
         try:
             body = json.loads(_get(AUTHORIZE_URL, headers, timeout=20))
         except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read(2000).decode("utf-8", "replace").lower()
+            except Exception:
+                detail = ""
+            if exc.code == 403 and ("cloudflare" in detail or "error 1010" in detail):
+                raise FeedAuthError(
+                    "Upstox's firewall (Cloudflare) refused the connection before checking the "
+                    "token. This is not a token problem; try again later or switch LIVE PRICES "
+                    "FROM to Yahoo."
+                ) from exc
             if exc.code in (401, 403):
                 raise FeedAuthError(
                     "Upstox rejected the token. Generate a new Analytics Token in the "
-                    "Upstox Developer Apps page and save it under UPSTOX in the ribbon."
+                    "Upstox Developer Apps page and save it under Settings → Connections → Upstox."
                 ) from exc
             if exc.code == 429:
                 raise FeedAuthError("Upstox rate limit reached; retrying in a minute") from exc
@@ -110,7 +126,7 @@ class UpstoxFeed:
         maps = await asyncio.to_thread(self._instrument_maps)
         by_key: dict[str, str] = {}
 
-        async with websockets.connect(url, max_size=None) as ws:
+        async with websockets.connect(url, max_size=None, user_agent_header=USER_AGENT) as ws:
             async def keep_subscribed() -> None:
                 while True:
                     symbols = await asyncio.to_thread(hub.held_symbols)

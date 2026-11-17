@@ -4,6 +4,23 @@ import { setDisplay } from "../format";
 import type { WatchItem, CorporateAction, LiveSnapshot, Portfolio, Settings, Trade, TradeInput } from "../api/types";
 
 type Status = "connecting" | "ok" | "down";
+export type PageId = "markets" | "portfolio" | "chart" | "analytics" | "plan" | "settings";
+export type SectionId = "risk" | "connections" | "display" | "ai" | "news" | "data" | "about";
+export interface Tick { ts: number; price: number }
+export const TICK_LIMIT = 50;
+
+/** Adds each quote whose price moved to the front of its symbol's list. */
+export function addTicks(prev: Record<string, Tick[]>, quotes: LiveSnapshot["quotes"] | undefined): Record<string, Tick[]> {
+  if (!quotes) return prev;
+  let next = prev;
+  for (const [symbol, q] of Object.entries(quotes)) {
+    const list = prev[symbol] ?? [];
+    if (q?.ltp == null || list[0]?.price === q.ltp) continue;
+    if (next === prev) next = { ...prev };
+    next[symbol] = [{ ts: q.ts || Date.now(), price: q.ltp }, ...list].slice(0, TICK_LIMIT);
+  }
+  return next;
+}
 
 interface State {
   status: Status;
@@ -12,9 +29,16 @@ interface State {
   notice: string | null;
   portfolio: Portfolio | null;
   live: LiveSnapshot | null;
+  /** Recent live price updates per symbol, newest first (at most TICK_LIMIT each). */
+  ticks: Record<string, Tick[]>;
   trades: Trade[];
   actions: CorporateAction[];
   selected: string | null;
+  /** The page shown in the main area (left rail). */
+  page: PageId;
+  setPage: (page: PageId) => void;
+  settingsSection: SectionId;
+  openSettings: (section?: SectionId) => void;
   paletteOpen: boolean;
   connectOpen: boolean;
   reviewOpen: boolean;
@@ -29,7 +53,8 @@ interface State {
   /** Exchange each symbol was picked from in the search (NASDAQ, NYSE...), for the chart. */
   exchanges: Record<string, string>;
   bondsOpen: boolean;
-  layoutEpoch: number;
+  /** Bumped to rebuild a page's layout from its default. */
+  layoutEpochs: Partial<Record<PageId, number>>;
   init: () => Promise<void>;
   reload: (refresh?: boolean) => Promise<void>;
   /** Recompute metrics with today's live quotes, from cached history only. */
@@ -47,7 +72,9 @@ interface State {
   setPalette: (open: boolean) => void;
   setConnectOpen: (open: boolean) => void;
   setBondsOpen: (open: boolean) => void;
-  resetLayout: () => void;
+  /** Resets one page's layout (default: the page shown). */
+  resetLayout: (page?: PageId) => void;
+  resetAllLayouts: () => void;
   dismiss: () => void;
 }
 
@@ -64,9 +91,14 @@ export const useStore = create<State>((set, get) => ({
   notice: null,
   portfolio: null,
   live: null,
+  ticks: {},
   trades: [],
   actions: [],
   selected: null,
+  page: "portfolio",
+  setPage: (page) => set({ page }),
+  settingsSection: "risk",
+  openSettings: (section) => set((s) => ({ page: "settings", settingsSection: section ?? s.settingsSection })),
   paletteOpen: false,
   connectOpen: false,
   reviewOpen: false,
@@ -110,12 +142,13 @@ export const useStore = create<State>((set, get) => ({
   },
   exchanges: {},
   openSymbol: (symbol, name, exchange) => {
-    set((s) => ({ selected: symbol, exchanges: exchange ? { ...s.exchanges, [symbol]: exchange } : s.exchanges }));
+    set((s) => ({ selected: symbol, page: "chart",
+                  exchanges: exchange ? { ...s.exchanges, [symbol]: exchange } : s.exchanges }));
     // Recorded in History only: nothing is downloaded for a stock you just look at.
     api.viewed(symbol, name, exchange).then(() => get().loadHistory()).catch(() => {});
   },
   bondsOpen: false,
-  layoutEpoch: 0,
+  layoutEpochs: {},
 
   init: async () => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -126,7 +159,7 @@ export const useStore = create<State>((set, get) => ({
           ticksOpen = true;
           openTicks(
             (live) => {
-              set({ live });
+              set((s) => ({ live, ticks: addTicks(s.ticks, live.quotes) }));
               // Beta, Sharpe, VaR and the rest follow live prices: recompute from
               // the cache (no downloads) at most once a minute while quotes stream.
               const now = Date.now();
@@ -280,10 +313,20 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  select: (symbol) => set({ selected: symbol }),
+  // Picking a stock shows it on the Chart page.
+  select: (symbol) => set(symbol ? { selected: symbol, page: "chart" } : { selected: null }),
   setPalette: (open) => set({ paletteOpen: open }),
-  setConnectOpen: (open) => set({ connectOpen: open }),
+  // Connections now live on the Settings page; older callers still work.
+  setConnectOpen: (open) => { if (open) get().openSettings("connections"); },
   setBondsOpen: (open) => set({ bondsOpen: open }),
-  resetLayout: () => set((s) => ({ layoutEpoch: s.layoutEpoch + 1 })),
+  resetLayout: (page) => set((s) => {
+    const p = page ?? s.page;
+    return { layoutEpochs: { ...s.layoutEpochs, [p]: (s.layoutEpochs[p] ?? 0) + 1 } };
+  }),
+  resetAllLayouts: () => set((s) => {
+    const next: Partial<Record<PageId, number>> = {};
+    for (const p of ["markets", "portfolio", "chart", "analytics", "plan"] as PageId[]) next[p] = (s.layoutEpochs[p] ?? 0) + 1;
+    return { layoutEpochs: next };
+  }),
   dismiss: () => set({ error: null, notice: null }),
 }));

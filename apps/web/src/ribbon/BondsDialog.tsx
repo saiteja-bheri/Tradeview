@@ -4,7 +4,7 @@ import type { Bond, BondInput } from "../api/types";
 import { num } from "../format";
 import { useStore } from "../state/store";
 
-const field = "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-amber";
+const field = "w-full border border-line bg-bg px-2 py-1 text-ink outline-none placeholder:text-dim/60 focus:border-accent";
 const FREQ: { value: Bond["frequency"]; label: string }[] = [
   { value: 2, label: "Half-yearly" }, { value: 1, label: "Yearly" }, { value: 4, label: "Quarterly" },
   { value: 12, label: "Monthly" }, { value: 0, label: "Zero coupon" },
@@ -85,9 +85,9 @@ export function BondsDialog() {
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-16"
          onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
       <div role="dialog" aria-modal="true" aria-labelledby="bonds-title"
-           className="flex max-h-[84vh] w-[720px] max-w-[94vw] flex-col border border-amber bg-panel shadow-2xl">
+           className="flex max-h-[84vh] w-[720px] max-w-[94vw] flex-col border border-accent bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-          <h2 id="bonds-title" className="tracking-widest text-amber">BONDS</h2>
+          <h2 id="bonds-title" className="tracking-widest text-accent">BONDS</h2>
           <button onClick={() => setOpen(false)} aria-label="Close" className="text-dim hover:text-ink">✕</button>
         </div>
 
@@ -168,7 +168,7 @@ export function BondsDialog() {
             </label>
             <div className="flex items-end">
               <button type="submit" disabled={busy || !form.id.trim() || !form.maturity}
-                      className="w-full border border-amber px-3 py-1 text-amber hover:bg-amber hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-amber">
+                      className="w-full border border-accent px-3 py-1 text-accent hover:bg-accent hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-accent">
                 SAVE BOND
               </button>
             </div>

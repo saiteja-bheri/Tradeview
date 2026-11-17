@@ -103,7 +103,7 @@ class ZerodhaFeed:
                 raw = http.get_bytes(f"{API}/instruments/{exchange}", headers(self._key, self._token), timeout=60)
             except BrokerError as exc:
                 if exc.status in (401, 403):
-                    raise ZerodhaAuthError("Zerodha session expired. Log in again under CONNECT.") from exc
+                    raise ZerodhaAuthError("Zerodha session expired. Log in again under Settings → Connections.") from exc
                 raise
             maps[exchange] = build_token_map(raw.decode("utf-8", "replace"), exchange)
         try:
@@ -116,7 +116,7 @@ class ZerodhaFeed:
         import websockets
 
         if not (self._key and self._token):
-            raise ZerodhaAuthError("Log in to Zerodha under CONNECT to stream its prices.")
+            raise ZerodhaAuthError("Log in to Zerodha under Settings → Connections to stream its prices.")
         maps = await asyncio.to_thread(self._maps)
         by_token: dict[int, str] = {}
         url = f"{WS}?api_key={self._key}&access_token={self._token}"
