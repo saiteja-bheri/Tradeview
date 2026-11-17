@@ -3,7 +3,7 @@ come through here, so they share one rule for duplicates: a trade id already
 in the ledger is never added twice."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import select
@@ -19,6 +19,7 @@ class IngestResult:
     imported: int = 0
     duplicates: int = 0
     updated: int = 0
+    skipped: list[str] = field(default_factory=list)   # rows not stored, with the reason
 
 
 def remember_instrument(session: Session, symbol: str, name: str | None, isin: str = "") -> None:
@@ -42,7 +43,13 @@ def store_trades(session: Session, trades: list[ParsedTrade]) -> IngestResult:
     existing = {t.trade_id: t for t in session.scalars(select(Trade))}
     result = IngestResult()
     now = datetime.now().replace(microsecond=0)
+    today = now.date()
     for t in trades:
+        if t.traded_at.date() > today:
+            # A date in the future is a typo or a mis-read column (e.g. a settlement or expiry date).
+            result.skipped.append(f"{t.symbol} {t.side} {t.quantity:g} on {t.traded_at:%Y-%m-%d}: "
+                                  "dated in the future; not imported")
+            continue
         known = existing.get(t.trade_id)
         if known is not None:
             # Rows from this app's own export carry their ledger id: apply edits made in the file.

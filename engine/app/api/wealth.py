@@ -109,7 +109,12 @@ def delete_item(item_id: int, request: Request, session: Session = Depends(get_s
 class ProjectionIn(BaseModel):
     mode: Literal["continue", "fresh"] = Field(
         default="continue", description="continue = current portfolio plus a SIP; fresh = a new SIP from zero")
-    monthly_sip: float = Field(default=10_000, ge=0, le=1e9)
+    monthly_sip: float = Field(default=10_000, ge=0, le=1e9,
+                               description="Older form: an amount paid monthly. Ignored when sip_amount is given")
+    sip_amount: float | None = Field(default=None, ge=0, le=1e9,
+                                     description="Amount paid at every instalment, in rupees")
+    sip_frequency: Literal["daily", "weekly", "monthly", "bimonthly", "quarterly", "halfyearly", "yearly"] = Field(
+        default="monthly", description="How often the SIP is paid (bimonthly = every 2 months; daily = market days)")
     step_up_pct: float = Field(default=0.0, ge=0, le=50, description="Yearly increase in the SIP, percent")
     years: int = Field(default=10, ge=1, le=40)
     interval: Literal["monthly", "quarterly", "yearly"] = "yearly"
@@ -119,7 +124,7 @@ class ProjectionIn(BaseModel):
     tax_gains_pct: float = Field(default=12.5, ge=0, le=50,
                                  description="Tax on market gains if sold, percent (equity LTCG is 12.5% in India)")
     gains_exemption: float = Field(default=125_000, ge=0, le=1e9,
-                                   description="Gain that is tax-free (ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¹1.25 lakh a year for equity LTCG in India)")
+                                   description="Gain that is tax-free (₹1.25 lakh a year for equity LTCG in India)")
     tax_interest_pct: float = Field(default=0.0, ge=0, le=50,
                                     description="Your income-tax slab, taken out of deposit and savings interest")
     renew_deposits: bool = Field(default=True, description="Renew FDs/RDs at the same rate when they mature")
@@ -143,7 +148,8 @@ async def project(body: ProjectionIn, request: Request):
                 start_value=value if body.mode == "continue" else 0.0,
                 by_class=by_class,   # a fresh SIP is assumed to follow today's mix (or equity if none)
                 metrics=data.get("metrics") or {}, observations=data.get("observations", 0),
-                monthly_sip=body.monthly_sip, step_up_pct=body.step_up_pct, years=body.years,
+                monthly_sip=body.monthly_sip, sip_amount=body.sip_amount, sip_frequency=body.sip_frequency,
+                step_up_pct=body.step_up_pct, years=body.years,
                 interval=body.interval, outlook=body.outlook, wealth_items=items, simulations=body.simulations,
                 risk_free=float(data["params"]["risk_free_rate"]),
                 start_cost=cost if body.mode == "continue" else 0.0,

@@ -2,6 +2,8 @@ export interface Settings {
   benchmark: string;
   benchmark_name: string;
   cov_horizon_days: number;
+  /** Trading days behind the covariance matrix; 0 = same as lookback_days. */
+  cov_lookback_days: number;
   confidence: number;
   horizon_days: number;
   lookback_days: number;
@@ -69,6 +71,8 @@ export interface Portfolio {
   metrics: Metrics | null;
   covariance: Covariance | null;
   observations: number;
+  /** True when today's live quotes are counted as a provisional daily bar. */
+  live?: boolean;
   holdings: Holding[];
   warnings: string[];
   returns?: Returns;
@@ -82,6 +86,10 @@ export interface Covariance {
   symbols: string[];
   horizon_days: number;
   observations: number;
+  window_days?: number;
+  independent_periods?: number;
+  from?: string;
+  to?: string;
   matrix: (number | null)[][];
   annualized: (number | null)[][];
   correlation: (number | null)[][];
@@ -322,6 +330,40 @@ export interface OptPortfolio {
   weights: Record<string, number>;
 }
 
+export interface FrontierPoint {
+  return: number;
+  volatility: number;
+  sharpe?: number | null;
+  weights?: Record<string, number>;
+}
+
+export interface OptimizeRequest {
+  scope?: "portfolio" | "starred" | "both";
+  symbols?: string[];
+  lookback_days?: number;
+  max_weight?: number;
+  min_weight?: number;
+  risk_free_rate?: number | null;
+  target_return?: number | null;
+  target_volatility?: number | null;
+  exclude?: string[];
+  frontier_points?: number;
+}
+
+export type RollingKey = "sharpe" | "sortino" | "volatility" | "return" | "beta" | "alpha";
+
+export interface Rolling {
+  window: number;
+  span: number;
+  benchmark: string;
+  benchmark_name: string;
+  risk_free_rate: number;
+  dates: string[];
+  series: Record<RollingKey, (number | null)[]>;
+  live: boolean;
+  warnings: string[];
+}
+
 export interface OptimizerResult {
   scope: "portfolio" | "starred" | "both" | "custom";
   symbols: string[];
@@ -330,9 +372,11 @@ export interface OptimizerResult {
   to: string;
   risk_free_rate: number;
   max_weight: number;
+  min_weight?: number;
   shrinkage: number;
-  portfolios: { max_sharpe: OptPortfolio | null; min_variance: OptPortfolio | null; equal_weight: OptPortfolio | null; current?: OptPortfolio | null };
-  frontier: { return: number; volatility: number }[];
+  portfolios: { max_sharpe: OptPortfolio | null; min_variance: OptPortfolio | null; equal_weight: OptPortfolio | null;
+                current?: OptPortfolio | null; target?: OptPortfolio | null };
+  frontier: FrontierPoint[];
   assets: { symbol: string; name: string; held: boolean; return: number; volatility: number; sharpe: number | null }[];
   warnings: string[];
 }
@@ -508,6 +552,7 @@ export interface ProjectionPoint {
 export interface ProjectionResult {
   assumptions: {
     source: "past" | "cautious" | "neutral" | "optimistic"; expected_return: number; volatility: number;
+    past_compound_return?: number;
     volatility_source?: string; weights: Record<string, number>;
     per_class: Record<string, { expected_return: number; volatility: number }> | null;
     monthly_sip: number; step_up_pct: number; years: number; interval: string; start_value: number; simulations: number;

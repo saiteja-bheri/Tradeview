@@ -1,6 +1,7 @@
 import { ASSET_NAME, inr, num, pct, signed, ticker, tone } from "../format";
 import { useStore } from "../state/store";
 import { Empty, Flash, Seg } from "../ui";
+import { RollingChart } from "./RollingChart";
 
 export function RiskPane() {
   const p = useStore((s) => s.portfolio);
@@ -17,6 +18,7 @@ export function RiskPane() {
       <div className="border-b border-line px-3 py-3">
         <div className="text-[10px] tracking-widest text-dim">
           PARAMETRIC VAR · {conf}% · {p.params.horizon_days}D
+          {p.live && <span className="ml-2 text-up" title="Every figure below counts today's live prices as a provisional day; recomputed about once a minute">● LIVE</span>}
         </div>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="text-2xl font-semibold text-amber">
@@ -52,6 +54,8 @@ export function RiskPane() {
               cls={tone(p.returns?.total_return)} />
         <Tile label="XIRR (ANN.)" value={p.returns?.xirr} text={pct(p.returns?.xirr)} cls={tone(p.returns?.xirr)} />
       </div>
+
+      <RollingChart />
 
       {(p.allocation?.length ?? 0) > 0 && (
         <div className="border-t border-line px-3 py-3">

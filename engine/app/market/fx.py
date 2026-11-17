@@ -16,7 +16,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Instrument, PriceBar
+from app.db.models import Instrument, PriceBar, Setting
 from app.market import symbols
 
 
@@ -29,7 +29,9 @@ def currency_of(symbol: str, instruments: dict[str, Instrument] | None = None) -
 
 def currencies(session: Session, held: list[str]) -> dict[str, str]:
     instruments = {i.symbol: i for i in session.scalars(select(Instrument).where(Instrument.symbol.in_(held)))}
-    return {s: currency_of(s, instruments) for s in held}
+    reported = {s.key.split(":", 1)[1]: s.value for s in session.scalars(
+        select(Setting).where(Setting.key.in_([f"currency:{h}" for h in held if h not in instruments])))}
+    return {s: reported.get(s) or currency_of(s, instruments) for s in held}
 
 
 def fx_symbols(ccys: dict[str, str]) -> list[str]:

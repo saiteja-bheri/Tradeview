@@ -172,6 +172,16 @@ def refresh_symbol(
         inst = session.get(Instrument, symbol)
         if inst is not None and inst.currency != currency:
             inst.currency = currency
+        elif inst is None:
+            # Benchmarks and other unheld symbols have no instrument row; keep the
+            # currency Yahoo reported so a foreign index is converted to rupees.
+            # (Own variable name: `key` is the refreshed-stamp key used further down.)
+            ccy_key = f"currency:{symbol}"
+            ccy_row = session.get(Setting, ccy_key)
+            if ccy_row is None:
+                session.add(Setting(key=ccy_key, value=currency))
+            elif ccy_row.value != currency:
+                ccy_row.value = currency
 
     if incremental:
         if not frame.empty:

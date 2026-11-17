@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import CorporateAction, Instrument, WealthItem
-from app.market import history, symbols
+from app.market import fx, history, symbols
 from app.quant import cashflow, service, wealth
 
 FACTOR_KINDS = ("split", "bonus")
@@ -61,6 +61,13 @@ def build(session: Session, start: date | None = None, end: date | None = None) 
         if s in close.columns and symbols.fx_pair(rates.ccys.get(s, "INR")):
             r = rates.frame(s, close.index)
             close[s] = close[s] * r if r is not None else np.nan
+    # The benchmark in rupees too (as on the RISK tab): a foreign index drawn in
+    # its own currency against a rupee portfolio would hide the currency move.
+    if bench in close.columns and bench not in syms:
+        brates = fx.Rates(session, fx.currencies(session, [bench]))
+        if symbols.fx_pair(brates.ccys.get(bench, "INR")):
+            r = brates.frame(bench, close.index)
+            close[bench] = close[bench] * r if r is not None else np.nan
 
     actions = session.scalars(select(CorporateAction).where(CorporateAction.kind.in_(FACTOR_KINDS))).all()
     splits: dict[str, list[tuple[date, float]]] = defaultdict(list)

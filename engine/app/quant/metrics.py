@@ -86,3 +86,42 @@ def correlation(cov: np.ndarray) -> np.ndarray:
     sd = np.sqrt(np.diag(cov))
     with np.errstate(divide="ignore", invalid="ignore"):
         return cov / np.outer(sd, sd)
+
+
+def aligned_returns(prices: pd.DataFrame, cols: list[str], benchmark: str | None = None,
+                    fill_limit: int = 5) -> pd.DataFrame:
+    """Daily simple returns of `cols`, all measured over the same days.
+
+    With a benchmark among the columns, rows are restricted to the days the
+    benchmark traded *before* filling gaps. A holding closed on one of those
+    days carries its last price (at most `fill_limit` days); a day only the
+    holding's market was open is folded into the next benchmark day. Without
+    this, the benchmark's own holidays are forward-filled into zero returns
+    while the holding moves, which drags beta and correlation towards zero
+    whenever the benchmark trades on a different calendar."""
+    frame = prices[list(dict.fromkeys(cols))]   # the benchmark may also be a holding
+    if benchmark and benchmark in frame.columns:
+        frame = frame[frame[benchmark].notna()]
+    return frame.ffill(limit=fill_limit).pct_change(fill_method=None).dropna(how="any")
+
+
+def rolling_metrics(r: pd.Series, benchmark: pd.Series | None, rf_annual: float, window: int) -> pd.DataFrame:
+    """Trailing-window Sharpe, Sortino, volatility and beta (and Jensen's alpha
+    when a benchmark is given), one row per day once `window` returns exist.
+    Same formulas as the point metrics above, applied to each window."""
+    rf = rf_annual / TRADING_DAYS
+    excess = r - rf
+    mean = excess.rolling(window).mean()
+    sd = excess.rolling(window).std(ddof=1)
+    down = np.sqrt((np.minimum(excess, 0.0) ** 2).rolling(window).mean())
+    out = pd.DataFrame(index=r.index)
+    out["sharpe"] = (mean / sd.where(sd > 0)) * math.sqrt(TRADING_DAYS)
+    out["sortino"] = (mean / down.where(down > 0)) * math.sqrt(TRADING_DAYS)
+    out["volatility"] = r.rolling(window).std(ddof=1) * math.sqrt(TRADING_DAYS)
+    out["return"] = (1 + r).rolling(window).apply(np.prod, raw=True) ** (TRADING_DAYS / window) - 1
+    if benchmark is not None:
+        var_b = benchmark.rolling(window).var(ddof=1)
+        b = r.rolling(window).cov(benchmark, ddof=1) / var_b.where(var_b > 0)
+        out["beta"] = b
+        out["alpha"] = ((r.rolling(window).mean() - rf) - b * (benchmark.rolling(window).mean() - rf)) * TRADING_DAYS
+    return out.iloc[window - 1:]

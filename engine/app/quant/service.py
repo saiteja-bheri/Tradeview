@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import numpy as np
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,14 +17,16 @@ from types import SimpleNamespace
 from app.db.models import (Bond, BrokerHolding, CorporateAction, Instrument, Setting, Trade,
                            Watch)
 from app.ledger import review
-from app.ledger.positions import EPS, Position, build_positions
+from app.ledger.positions import EPS, Position, build_positions, clip_oversells
 from app.market import fx, history, symbols
 from app.quant import metrics as qm
 from app.quant import returns
 
 MIN_OBSERVATIONS = 30
+MIN_LOOKBACK_DAYS = 21     # one month; the RISK tab offers 1M
 MAX_LOOKBACK_DAYS = 2520   # ten years of trading days
-MAX_HORIZON_DAYS = 60
+MAX_HORIZON_DAYS = 60      # VaR horizon
+MAX_COV_HORIZON_DAYS = 252  # covariance horizon: up to a year of compounded returns
 _SYMBOL = re.compile(r"^[A-Z0-9^][A-Z0-9^&_.=-]{0,29}$")
 
 
@@ -57,10 +60,14 @@ def validate_settings(values: dict) -> dict:
             value = " ".join(value.split())[:80]
         if key == "confidence" and not 0.5 < value < 1:
             raise ValueError("confidence must be between 0.5 and 1 (e.g. 0.95 or 0.99)")
-        if key in ("horizon_days", "cov_horizon_days") and not 1 <= value <= MAX_HORIZON_DAYS:
+        if key == "horizon_days" and not 1 <= value <= MAX_HORIZON_DAYS:
             raise ValueError(f"{key} must be between 1 and {MAX_HORIZON_DAYS}")
-        if key == "lookback_days" and not MIN_OBSERVATIONS <= value <= MAX_LOOKBACK_DAYS:
-            raise ValueError(f"lookback_days must be between {MIN_OBSERVATIONS} and {MAX_LOOKBACK_DAYS}")
+        if key == "cov_horizon_days" and not 1 <= value <= MAX_COV_HORIZON_DAYS:
+            raise ValueError(f"{key} must be between 1 and {MAX_COV_HORIZON_DAYS}")
+        if key == "lookback_days" and not MIN_LOOKBACK_DAYS <= value <= MAX_LOOKBACK_DAYS:
+            raise ValueError(f"lookback_days must be between {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS}")
+        if key == "cov_lookback_days" and value != 0 and not 60 <= value <= MAX_LOOKBACK_DAYS:
+            raise ValueError(f"cov_lookback_days must be 0 (same as lookback_days) or 60 to {MAX_LOOKBACK_DAYS}")
         if key == "display_currency":
             value = value.strip().upper()
             if value not in DISPLAY_CURRENCIES:
@@ -90,16 +97,22 @@ def save_settings(session: Session, values: dict) -> dict:
 def inr_ledger(session: Session):
     """Trades and corporate actions with every amount in rupees. International
     trades are costed at the FX rate on their trade date and their dividends
-    at the rate on the ex-date. Returns (trades, actions, rates, warnings)."""
+    at the rate on the ex-date. Returns (trades, actions, rates, warnings).
+
+    Every reader of the ledger (positions, cash, returns, timeline, stress, the
+    live hub) comes through here, so a sale larger than the holding is capped
+    once, here: the unbacked excess never becomes cash or a return."""
     trades = session.scalars(select(Trade)).all()
     actions = session.scalars(select(CorporateAction)).all()
+    trades, oversold = clip_oversells(trades, actions)
+    trades = [t for t in trades if t.traded_at.date() <= date.today()]   # never count a future-dated row
     ccys = fx.currencies(session, sorted({t.symbol for t in trades}))
     rates = fx.Rates(session, ccys)
     foreign = {s for s, c in ccys.items() if symbols.fx_pair(c)}
     if not foreign:
-        return trades, actions, rates, []
-    warnings = [f"No {c}/INR rate cached yet; refresh prices to value holdings in {c}"
-                for c in sorted(rates.missing)]
+        return trades, actions, rates, oversold
+    warnings = oversold + [f"No {c}/INR rate cached yet; refresh prices to value holdings in {c}"
+                           for c in sorted(rates.missing)]
     out_trades = []
     for t in trades:
         if t.symbol in foreign:
@@ -234,8 +247,9 @@ def refresh_market(session: Session, benchmark: str, fetcher=None, force: bool =
     start = history_start(session, lookback_days)
     traded = list(session.scalars(select(Trade.symbol).distinct()))
     tracked = list(session.scalars(select(Watch.symbol).where(Watch.starred | Watch.watched)))
-    # FX first, so international prices and costs convert with fresh rates.
-    ccys = fx.currencies(session, traded + tracked)
+    # FX first, so international prices and costs convert with fresh rates. The
+    # benchmark is included: a foreign index is compared in rupees like the holdings.
+    ccys = fx.currencies(session, traded + tracked + [benchmark])
     shown = get_settings(session)["display_currency"]
     if shown not in ("AUTO", "INR"):
         ccys["__display__"] = shown
@@ -252,13 +266,90 @@ def refresh_market(session: Session, benchmark: str, fetcher=None, force: bool =
     return warnings
 
 
+def _today_quotes(quotes: dict | None) -> dict[str, float]:
+    """Latest live price per symbol, only for quotes stamped today (local time)."""
+    if not quotes:
+        return {}
+    today = date.today()
+    out: dict[str, float] = {}
+    for s, q in quotes.items():
+        try:
+            ltp, ts = float(q.get("ltp")), float(q.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(ltp) and ltp > 0 and ts and datetime.fromtimestamp(ts).date() == today:
+            out[s] = ltp
+    return out
+
+
+def apply_live_bar(close, adj, quotes: dict | None, held: list[str], benchmark: str | None):
+    """Writes today's live prices as a provisional daily bar so beta, Sharpe and
+    the rest move during the session. Only when the benchmark has a live quote
+    and so does every listed holding: a holding without one would show a false
+    0% day. Mutual funds, bonds and commodity proxies may lack a quote (their
+    price is published once a day). Returns (close, adj, used)."""
+    live = _today_quotes(quotes)
+    if close is None or close.empty or not live or (benchmark and benchmark not in live):
+        return close, adj, False
+    need = [s for s in held if s in close.columns and symbols.namespace(s) is None]
+    if any(s not in live for s in need):
+        return close, adj, False
+    today = date.today()
+    last = close.index.max()
+    if last > today:
+        return close, adj, False
+    cols = [s for s in [*held, benchmark] if s and s in live and s in close.columns]
+    if not cols:
+        return close, adj, False
+    close, adj = close.copy(), adj.copy()
+    if last < today:
+        close.loc[today] = np.nan
+        adj.loc[today] = np.nan
+    for s in cols:              # today's bar has no later split or dividend, so adjusted = close
+        close.loc[today, s] = live[s]
+        adj.loc[today, s] = live[s]
+    return close.sort_index(), adj.sort_index(), True
+
+
+def inr_prices(session: Session, cols: list[str], quotes: dict | None = None,
+               held: list[str] | None = None, benchmark: str | None = None):
+    """Close and adjusted-close frames for `cols` with every price in rupees at
+    that day's rate (international listings and a foreign benchmark alike),
+    plus the local-currency closes. Columns with no rate are dropped.
+    Returns (close_inr, adj_inr, close_local, rates, live_used)."""
+    cols = list(dict.fromkeys(cols))            # the benchmark may also be a holding
+    close, adj = history.load_prices(session, cols)
+    close, adj, used = apply_live_bar(close, adj, quotes, held or [], benchmark)
+    local_close = close.copy()
+    ccys = fx.currencies(session, cols)
+    rates = fx.Rates(session, ccys)
+    for s in cols:
+        if s not in close.columns or not symbols.fx_pair(rates.ccys.get(s, "INR")):
+            continue
+        r = rates.frame(s, close.index)
+        if r is None:
+            close = close.drop(columns=s)
+            adj = adj.drop(columns=s)
+            continue
+        close[s] = close[s] * r
+        adj[s] = adj[s] * r
+    return close, adj, local_close, rates, used
+
+
+def cov_lookback(params: dict) -> int:
+    return int(params.get("cov_lookback_days") or 0) or int(params["lookback_days"])
+
+
 def compute(session: Session, overrides: dict | None = None, *, refresh: bool = True,
-            fetcher=None) -> dict:
+            fetcher=None, quotes: dict | None = None) -> dict:
+    """`quotes` are the live hub's latest quotes; when they cover the benchmark
+    and the holdings, today's prices count as a provisional daily bar."""
     params = {**get_settings(session), **validate_settings(overrides or {})}
     benchmark = params["benchmark"]
     label = params["benchmark_name"] or benchmark
     lookback = int(params["lookback_days"])
-    warnings = (refresh_market(session, benchmark, fetcher, lookback_days=lookback)
+    cov_days = cov_lookback(params)
+    warnings = (refresh_market(session, benchmark, fetcher, lookback_days=max(lookback, cov_days))
                 if refresh else [])
 
     pending = review.refresh(session)
@@ -273,17 +364,10 @@ def compute(session: Session, overrides: dict | None = None, *, refresh: bool = 
         warnings.extend(p.warnings)
     warnings.extend(mismatch_warnings(reconcile(session)))
     held = sorted(s for s, p in positions.items() if p.quantity > EPS)
-    close, adj = history.load_prices(session, held + [benchmark])
-    local_close = close.copy()
-    foreign = [s for s in held if s in close.columns and symbols.fx_pair(rates.ccys.get(s, "INR"))]
-    for s in foreign:                      # every price into rupees at that day's rate
-        r = rates.frame(s, close.index)
-        if r is None:
-            close = close.drop(columns=s)
-            adj = adj.drop(columns=s)
-            continue
-        close[s] = close[s] * r
-        adj[s] = adj[s] * r
+    # Every price into rupees at that day's rate, the benchmark included.
+    close, adj, local_close, prates, live_used = inr_prices(
+        session, held + [benchmark], quotes, held, benchmark)
+    foreign = [s for s in held if s in local_close.columns and symbols.fx_pair(prates.ccys.get(s, "INR"))]
     native = native_positions(session, set(foreign))
 
     priced = [s for s in held if s in close.columns and close[s].notna().any()]
@@ -307,6 +391,7 @@ def compute(session: Session, overrides: dict | None = None, *, refresh: bool = 
         "metrics": None,
         "covariance": None,
         "observations": 0,
+        "live": False,
         "warnings": warnings,
         "pending_reviews": pending,
         # Dividends, coupons and sale proceeds stay as cash until spent on a purchase or withdrawn.
@@ -369,18 +454,25 @@ def compute(session: Session, overrides: dict | None = None, *, refresh: bool = 
     if not has_bench:
         warnings.append(f"No price history for benchmark {label}; beta and alpha unavailable")
     cols = priced + ([benchmark] if has_bench else [])
-    # Markets keep different holidays: carry a price over a closed day (at most a
-    # week) rather than dropping that day for every holding.
-    rets = adj[cols].ffill(limit=5).pct_change(fill_method=None).dropna(how="any").tail(lookback)
+    # Markets keep different holidays: returns are measured on the benchmark's
+    # trading days, carrying a holding's price over its own closed days (at most
+    # a week), so both sides of beta cover the same calendar span.
+    all_rets = qm.aligned_returns(adj, cols, benchmark if has_bench else None)
+    rets = all_rets.tail(lookback)
     result["observations"] = len(rets)
-    if MIN_OBSERVATIONS <= len(rets) < lookback:
+    result["live"] = bool(live_used and len(rets) and rets.index.max() == date.today())
+
+    _covariance(result, warnings, all_rets[priced].tail(cov_days), int(params["cov_horizon_days"]), cov_days)
+
+    need = min(MIN_OBSERVATIONS, lookback)
+    if need <= len(rets) < lookback:
         warnings.append(
             f"Lookback is {lookback} trading days but only {len(rets)} overlapping daily returns "
             "exist for these holdings and the benchmark; metrics use what is available"
         )
-    if len(rets) < MIN_OBSERVATIONS:
+    if len(rets) < need:
         warnings.append(
-            f"Only {len(rets)} overlapping daily returns; need {MIN_OBSERVATIONS} for risk metrics"
+            f"Only {len(rets)} overlapping daily returns; need {need} for risk metrics"
         )
         return result
 
@@ -414,21 +506,128 @@ def compute(session: Session, overrides: dict | None = None, *, refresh: bool = 
         holdings[s]["component_var"] = _f(c)
 
     result["metrics"] = m
-    h = int(params["cov_horizon_days"])
-    period = qm.horizon_returns(asset_rets.to_numpy(), h)
-    if len(period) >= MIN_OBSERVATIONS:
-        cov_h = np.atleast_2d(np.cov(period, rowvar=False, ddof=1))
-    else:
-        cov_h = None
-        warnings.append(f"Not enough history for a {h}-day covariance matrix; "
-                        f"{len(period)} overlapping {h}-day returns, need {MIN_OBSERVATIONS}")
-    if cov_h is not None:
-        result["covariance"] = {
-            "symbols": priced,
-            "horizon_days": h,
-            "observations": len(period),
-            "matrix": [[_f(v) for v in row] for row in cov_h],
-            "annualized": [[_f(v) for v in row] for row in cov_h * (qm.TRADING_DAYS / h)],
-            "correlation": [[_f(v) for v in row] for row in qm.correlation(cov_h)],
-        }
     return result
+
+
+PERIODS = {"1D": 1, "1W": 5, "1M": 21, "3M": 63, "6M": 126, "1Y": 252, "YTD": 0}
+
+
+def period_returns(session: Session, period: str, quotes: dict | None = None) -> dict:
+    """Each holding's total return (dividends included, in rupees) over the
+    period, from cached prices plus today's live quotes, and the benchmark's
+    over the same days, so a tile can be read as beating or lagging the market."""
+    params = get_settings(session)
+    benchmark = params["benchmark"]
+    trades, actions, _, _ = inr_ledger(session)
+    held = sorted(s for s, p in build_positions(trades, actions).items() if p.quantity > EPS)
+    out = {"period": period, "benchmark": benchmark, "benchmark_name": params["benchmark_name"] or benchmark,
+           "benchmark_return": None, "from": None, "to": None, "returns": {}, "live": False}
+    if not held:
+        return out
+    _, adj, _, _, live_used = inr_prices(session, held + [benchmark], quotes, held, benchmark)
+    if adj.empty:
+        return out
+    end = adj.index.max()
+    if period == "YTD":
+        start_day = date(end.year, 1, 1)
+        idx = [d for d in adj.index if d < start_day]
+        start = idx[-1] if idx else adj.index.min()      # last close of the previous year
+    else:
+        days = PERIODS[period]
+        bench_days = adj[benchmark].dropna().index if benchmark in adj.columns else adj.index
+        pos = max(len(bench_days) - 1 - days, 0)
+        start = bench_days[pos]
+    out.update({"from": start.isoformat(), "to": end.isoformat(), "live": bool(live_used and end == date.today())})
+
+    def ret(sym: str) -> float | None:
+        if sym not in adj.columns:
+            return None
+        s = adj[sym].dropna()
+        a, b = s[s.index <= start], s[s.index <= end]
+        if a.empty or b.empty or a.iloc[-1] <= 0:
+            return None
+        return _f(b.iloc[-1] / a.iloc[-1] - 1)
+
+    out["returns"] = {s: ret(s) for s in held}
+    out["benchmark_return"] = ret(benchmark)
+    return out
+
+
+ROLLING_KEYS = ("sharpe", "sortino", "volatility", "return", "beta", "alpha")
+
+
+def rolling(session: Session, window: int, span: int | None = None, quotes: dict | None = None) -> dict:
+    """Trailing `window`-day metrics of today's mix of holdings, one point per
+    trading day over the last `span` days (default: the risk lookback). Same
+    data and formulas as the RISK tab, so the last point equals its figures
+    when window = lookback."""
+    params = get_settings(session)
+    benchmark = params["benchmark"]
+    span = span or int(params["lookback_days"])
+    rf = float(params["risk_free_rate"])
+    trades, actions, _, _ = inr_ledger(session)
+    positions = build_positions(trades, actions)
+    held = sorted(s for s, p in positions.items() if p.quantity > EPS)
+    out = {"window": window, "span": span, "benchmark": benchmark,
+           "benchmark_name": params["benchmark_name"] or benchmark, "risk_free_rate": rf,
+           "dates": [], "series": {k: [] for k in ROLLING_KEYS}, "live": False, "warnings": []}
+    if not held:
+        return out
+    close, adj, _, _, live_used = inr_prices(session, held + [benchmark], quotes, held, benchmark)
+    priced = [s for s in held if s in close.columns and close[s].notna().any()]
+    if not priced:
+        return out
+    last = {s: float(close[s].dropna().iloc[-1]) for s in priced}
+    value = {s: positions[s].quantity * last[s] for s in priced}
+    total = sum(value.values())
+    if total <= 0:
+        return out
+    w = np.array([value[s] / total for s in priced])
+    has_bench = benchmark in adj.columns and adj[benchmark].notna().any()
+    cols = priced + ([benchmark] if has_bench else [])
+    rets = qm.aligned_returns(adj, cols, benchmark if has_bench else None).tail(span + window - 1)
+    if len(rets) < window + 1:
+        out["warnings"].append(f"Only {len(rets)} overlapping daily returns; a {window}-day window needs "
+                               f"at least {window + 1}")
+        return out
+    rp = pd.Series(rets[priced].to_numpy() @ w, index=rets.index)
+    frame = qm.rolling_metrics(rp, rets[benchmark] if has_bench else None, rf, window)
+    out["dates"] = [d.isoformat() for d in frame.index]
+    out["series"] = {k: ([_f(v) for v in frame[k]] if k in frame.columns else [None] * len(frame))
+                     for k in ROLLING_KEYS}
+    out["live"] = bool(live_used and frame.index.max() == date.today())
+    if not has_bench:
+        out["warnings"].append(f"No price history for benchmark {out['benchmark_name']}; rolling beta unavailable")
+    return out
+
+
+def _covariance(result: dict, warnings: list[str], rets, h: int, window: int) -> None:
+    """Covariance of compounded h-day returns over the last `window` daily
+    returns (overlapping windows, so every day is used). Long horizons on a
+    short window have few independent periods; that is reported, not hidden."""
+    syms = list(rets.columns)
+    if not syms:
+        return
+    period = qm.horizon_returns(rets.to_numpy(), h)
+    if len(period) < MIN_OBSERVATIONS:
+        warnings.append(f"Not enough history for a {h}-day covariance matrix: {len(period)} overlapping "
+                        f"{h}-day returns in {len(rets)} days, need {MIN_OBSERVATIONS}. "
+                        "Pick a longer covariance window or a shorter horizon")
+        return
+    independent = len(rets) // h
+    if h > 1 and independent < 10:
+        warnings.append(f"The {h}-day covariance rests on about {independent} non-overlapping periods in "
+                        f"{len(rets)} days; treat it as rough or lengthen the covariance window")
+    cov_h = np.atleast_2d(np.cov(period, rowvar=False, ddof=1))
+    result["covariance"] = {
+        "symbols": syms,
+        "horizon_days": h,
+        "window_days": window,
+        "observations": len(period),
+        "independent_periods": independent,
+        "from": rets.index.min().isoformat(),
+        "to": rets.index.max().isoformat(),
+        "matrix": [[_f(v) for v in row] for row in cov_h],
+        "annualized": [[_f(v) for v in row] for row in cov_h * (qm.TRADING_DAYS / h)],
+        "correlation": [[_f(v) for v in row] for row in qm.correlation(cov_h)],
+    }

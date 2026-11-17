@@ -115,7 +115,21 @@ def is_international(symbol: str) -> bool:
     return bool(_INTL.match(s))
 
 
+# Foreign market indices, quoted in their home currency. Indian indices
+# (^NSEI, ^BSESN, ^CRSLDX, ^NSEBANK...) are INR and need no entry. Yahoo's own
+# reported currency, once a symbol has been downloaded, takes precedence.
+_INDEX_CCY = {
+    "^GSPC": "USD", "^DJI": "USD", "^IXIC": "USD", "^NDX": "USD", "^RUT": "USD", "^VIX": "USD", "^NYA": "USD",
+    "^FTSE": "GBP", "^FTMC": "GBP", "^N225": "JPY", "^HSI": "HKD", "^GDAXI": "EUR", "^FCHI": "EUR",
+    "^STOXX50E": "EUR", "^AEX": "EUR", "^IBEX": "EUR", "^SSMI": "CHF", "^AXJO": "AUD", "^GSPTSE": "CAD",
+    "^KS11": "KRW", "^TWII": "TWD", "^STI": "SGD", "^BVSP": "BRL", "^MXX": "MXN", "000001.SS": "CNY",
+}
+
+
 def guess_currency(symbol: str) -> str:
+    s = symbol.strip().upper()
+    if s in _INDEX_CCY:
+        return _INDEX_CCY[s]
     if not is_international(symbol):
         return "INR"
     suffix = symbol.rpartition(".")[2].upper() if "." in symbol else ""

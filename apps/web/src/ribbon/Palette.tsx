@@ -73,9 +73,10 @@ export function Palette() {
               VaR horizon: {d} day{d > 1 ? "s" : ""}
             </Command.Item>
           ))}
-          {[1, 2, 3, 5, 10].map((d) => (
+          {([[1, "1 day"], [5, "1 week"], [10, "2 weeks"], [21, "1 month"], [63, "3 months"], [126, "6 months"],
+             [252, "1 year"]] as const).map(([d, label]) => (
             <Command.Item key={`c${d}`} className={item} onSelect={run(() => setParam({ cov_horizon_days: d }))}>
-              Covariance horizon: {d} day{d > 1 ? "s" : ""}
+              Covariance horizon: {label}
             </Command.Item>
           ))}
         </Command.Group>

@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { ActionsPane } from "../panes/ActionsPane";
 import { ChartPane } from "../panes/ChartPane";
 import { CovariancePane } from "../panes/CovariancePane";
+import { HeatmapPane } from "../panes/HeatmapPane";
 import { HistoryPane } from "../panes/HistoryPane";
 import { HoldingsPane } from "../panes/HoldingsPane";
 import { InsightPane } from "../panes/InsightPane";
@@ -17,7 +18,7 @@ import { WatchlistPane } from "../panes/WatchlistPane";
 import { WealthPane } from "../panes/WealthPane";
 import { useStore } from "../state/store";
 
-const KEY = "qt.layout.v8"; // v8 adds PERFORMANCE
+const KEY = "qt.layout.v9"; // v9 adds HEATMAP
 
 const DEFAULT: IJsonModel = {
   global: { tabEnableClose: false, tabSetEnableMaximize: true, tabSetMinWidth: 180, tabSetMinHeight: 120 },
@@ -39,6 +40,7 @@ const DEFAULT: IJsonModel = {
         type: "tabset", weight: 48,
         children: [
           { type: "tab", name: "PERFORMANCE", component: "performance" },
+          { type: "tab", name: "HEATMAP", component: "heatmap" },
           { type: "tab", name: "CHART", component: "chart" },
           { type: "tab", name: "NEWS", component: "news" },
           { type: "tab", name: "COVARIANCE", component: "covariance" },
@@ -74,6 +76,7 @@ const PANES: Record<string, () => React.JSX.Element> = {
   performance: PerformancePane,
   optimizer: OptimizerPane,
   stress: StressPane,
+  heatmap: HeatmapPane,
 };
 
 function loadModel(fresh: boolean): Model {

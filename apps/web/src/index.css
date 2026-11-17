@@ -65,3 +65,14 @@ table.grid-table th {
 table.grid-table td { padding: 4px 8px; border-bottom: 1px solid rgb(31 36 45 / 0.5); white-space: nowrap; }
 table.grid-table .r { text-align: right; }
 table.grid-table th.l, table.grid-table td.l { text-align: left; }
+
+/* Interactive charts: values glide to their new place when the data changes
+   (Chromium animates SVG geometry and path `d`); off while zooming or panning. */
+.chart-anim path.tw { transition: d 0.45s ease; }
+.chart-anim circle.tw { transition: cx 0.45s ease, cy 0.45s ease, r 0.2s ease; }
+.chart-anim rect.tw { transition: x 0.45s ease, y 0.45s ease, width 0.45s ease, height 0.45s ease, fill 0.3s; }
+.chart-anim line.tw { transition: x1 0.45s ease, x2 0.45s ease, y1 0.45s ease, y2 0.45s ease; }
+.tile-anim { transition: left 0.45s ease, top 0.45s ease, width 0.45s ease, height 0.45s ease, background-color 0.5s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .chart-anim path.tw, .chart-anim circle.tw, .chart-anim rect.tw, .chart-anim line.tw, .tile-anim { transition: none; }
+}

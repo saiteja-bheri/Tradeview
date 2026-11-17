@@ -75,8 +75,14 @@ def market_assumptions(by_class: dict[str, float], outlook: str, metrics: dict, 
                 warnings.append(f"The past {observations} trading days lost {abs(ret):.1%} a year; this assumes the "
                                 "portfolio keeps losing at that rate every year, which is a bleak case, not a likely one. "
                                 "Compare with the outlook presets.")
-            return {"source": "past", "expected_return": float(ret), "volatility": float(vol),
-                    "per_class": None, "weights": weights, "warnings": warnings}
+            # The past figure is a compound (geometric) growth rate. The simulation
+            # takes the expected (arithmetic) return, whose median growth is
+            # (1 + mu) * exp(-sigma^2 / 2); reproducing the past compound rate on the
+            # likely path therefore needs mu = (1 + g) * exp(sigma^2 / 2) - 1.
+            # Feeding g in directly understated every year by about sigma^2 / 2.
+            mu = (1 + float(ret)) * math.exp(float(vol) ** 2 / 2) - 1
+            return {"source": "past", "expected_return": mu, "past_compound_return": float(ret),
+                    "volatility": float(vol), "per_class": None, "weights": weights, "warnings": warnings}
     table = OUTLOOKS[outlook]
     ret = sum(w * table[g][0] / 100 for g, w in weights.items())
     if metrics.get("volatility_annualized") and observations >= 60:
@@ -94,10 +100,13 @@ DEPOSITS = ("fixed_deposit", "recurring_deposit")
 
 
 def _other_paths(items, months: int, tax_interest_pct: float = 0.0, renew_deposits: bool = True,
-                 today: date | None = None) -> np.ndarray:
-    """Month-by-month value of the non-market items (deterministic)."""
+                 today: date | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Month-by-month value of the non-market items (deterministic), and the
+    money put into them (today's value plus contributions actually made: a
+    deposit that has matured into savings takes no more instalments)."""
     today = today or date.today()
     out = np.zeros(months + 1)
+    put_in = np.zeros(months + 1)
     cash_rate = wealth.KINDS["cash"]["rate"]
     for it in items:
         if it.kind == "term_insurance":
@@ -107,13 +116,18 @@ def _other_paths(items, months: int, tax_interest_pct: float = 0.0, renew_deposi
         if it.kind in DEPOSITS and it.maturity_date and not renew_deposits:
             matures = max((it.maturity_date.year - today.year) * 12 + it.maturity_date.month - today.month, 0)
         v = wealth.value_of(it)
+        paid = v
         out[0] += v
+        put_in[0] += v
         for m in range(1, months + 1):
             matured = matures is not None and m > matures
             rate = (cash_rate if matured else wealth.rate_of(it)) / 100 / 12 * keep
-            v = v * (1 + rate) + (0.0 if matured else it.monthly_contribution)
+            add = 0.0 if matured else it.monthly_contribution
+            v = v * (1 + rate) + add
+            paid += add
             out[m] += v
-    return out
+            put_in[m] += paid
+    return out, put_in
 
 
 def after_tax(value: float, cost: float, rate_pct: float, exemption: float) -> float:
@@ -122,11 +136,54 @@ def after_tax(value: float, cost: float, rate_pct: float, exemption: float) -> f
     return value - rate_pct / 100 * gain if gain > 0 else value
 
 
+# How often the SIP is paid: instalments per year. Daily SIPs run on market
+# days, about 250 a year in India; the rest are calendar schedules.
+SIP_FREQUENCIES: dict[str, int] = {
+    "daily": 250, "weekly": 52, "monthly": 12, "bimonthly": 6, "quarterly": 4, "halfyearly": 2, "yearly": 1,
+}
+
+
+def sip_schedule(amount: float, frequency: str, years: int, step_up_pct: float) -> list[tuple[float, float]]:
+    """[(time in months from today, rupees)] for every instalment. The first is
+    paid today; the amount steps up once a year (instalments in year 2 pay
+    amount x (1 + step-up), and so on)."""
+    per_year = SIP_FREQUENCIES[frequency]
+    gap = 12 / per_year
+    out = []
+    for j in range(per_year * years):
+        t = j * gap
+        out.append((t, amount * (1 + step_up_pct / 100) ** int(t / 12 + 1e-9)))
+    return out
+
+
+def _grown(shock: np.ndarray, amts: np.ndarray, fracs: np.ndarray) -> np.ndarray:
+    """Per path, sum of amt_k * exp(shock * frac_k): each instalment grown by the
+    rest of the month. Daily and weekly instalments within a month are equal and
+    evenly spaced, so the sum is a geometric series with a closed form, which
+    keeps a 25-year daily plan fast. Anything else is summed directly."""
+    n = len(amts)
+    d = fracs[0] - fracs[1] if n > 1 else 0.0
+    if n > 2 and np.allclose(amts, amts[0]) and np.allclose(np.diff(fracs), -d):
+        x = -shock * d                                   # ratio between consecutive terms is exp(x)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            series = np.where(np.abs(x) > 1e-12, np.expm1(x * n) / np.expm1(x), float(n))
+        return amts[0] * np.exp(shock * fracs[0]) * series
+    return np.exp(np.outer(shock, fracs)) @ amts
+
+
 def project(*, start_value: float, by_class: dict[str, float], metrics: dict, observations: int,
             monthly_sip: float, step_up_pct: float, years: int, interval: str, outlook: str,
             wealth_items, simulations: int = 5000, risk_free: float = 0.065, seed: int = 11,
             start_cost: float | None = None, tax_gains_pct: float = 0.0, gains_exemption: float = 0.0,
-            tax_interest_pct: float = 0.0, renew_deposits: bool = True) -> dict:
+            tax_interest_pct: float = 0.0, renew_deposits: bool = True,
+            sip_amount: float | None = None, sip_frequency: str = "monthly") -> dict:
+    """`sip_amount` is paid every `sip_frequency` (daily, weekly, monthly,
+    bimonthly = every 2 months, quarterly, halfyearly, yearly). Without it,
+    `monthly_sip` is paid monthly (the original behaviour)."""
+    if sip_amount is None:
+        sip_amount, sip_frequency = monthly_sip, "monthly"
+    if sip_frequency not in SIP_FREQUENCIES:
+        raise ValueError(f"sip_frequency must be one of {', '.join(SIP_FREQUENCIES)}")
     a = market_assumptions(by_class, outlook, metrics, observations)
     mu, sigma = a["expected_return"], max(a["volatility"], 1e-6)
     months = years * 12
@@ -140,11 +197,20 @@ def project(*, start_value: float, by_class: dict[str, float], metrics: dict, ob
     expected = float(start_value)
     invested = float(start_value)
     cost = float(start_value if start_cost is None else start_cost)   # what was actually paid, for tax
-    sip = float(monthly_sip)
+    schedule = sip_schedule(float(sip_amount), sip_frequency, years, step_up_pct)
+    # Instalments by the month they fall in (1-based), with the share of that
+    # month still to run once they are invested: a payment at the start of a
+    # month earns the whole month's return, one mid-month about half of it.
+    by_month: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for t, amt in schedule:
+        m = int(math.floor(t + 1e-9)) + 1
+        amts, fracs = by_month.get(m, ([], []))
+        amts.append(amt)
+        fracs.append(m - t)
+        by_month[m] = (amts, fracs)
+    by_month = {m: (np.array(a_), np.array(f_)) for m, (a_, f_) in by_month.items()}
     step = STEPS[interval]
-    other = _other_paths(wealth_items, months, tax_interest_pct, renew_deposits)
-    other_contrib = sum(it.monthly_contribution for it in wealth_items if it.kind != "term_insurance")
-    other_invested = float(other[0])
+    other, other_put_in = _other_paths(wealth_items, months, tax_interest_pct, renew_deposits)
     today = date.today()
 
     def point(m: int) -> dict:
@@ -154,37 +220,42 @@ def project(*, start_value: float, by_class: dict[str, float], metrics: dict, ob
                 "invested": invested, "cost": cost, "expected": expected,
                 "p10": float(p10), "p50": float(p50), "p90": float(p90),
                 "p10_after_tax": tx(p10), "p50_after_tax": tx(p50), "p90_after_tax": tx(p90),
-                "other": float(other[m]), "other_invested": other_invested,
+                "other": float(other[m]), "other_invested": float(other_put_in[m]),
                 "total_p10": float(p10 + other[m]), "total_p50": float(p50 + other[m]),
                 "total_p90": float(p90 + other[m]),
                 "total_p50_after_tax": tx(p50) + float(other[m])}
 
     points = [point(0)]
+    monthly_growth = (1 + mu) ** (1 / 12)
     for m in range(1, months + 1):
-        if m > 1 and (m - 1) % 12 == 0:
-            sip *= 1 + step_up_pct / 100                    # step-up once a year
-        values = (values + sip) * growth[:, m - 1]
-        expected = (expected + sip) * (1 + mu) ** (1 / 12)
-        invested += sip
-        cost += sip
-        other_invested += other_contrib
+        g = growth[:, m - 1]
+        amts, fracs = by_month.get(m, (np.empty(0), np.empty(0)))
+        if amts.size and np.allclose(fracs, 1.0):
+            values = (values + amts.sum()) * g              # paid at the month's start: the full month
+        elif amts.size:
+            # Each instalment grows by the part of this month's move still to come
+            # (the month's log-return spread evenly across it).
+            values = values * g + _grown(shocks[:, m - 1], amts, fracs)
+        else:
+            values = values * g
+        expected = expected * monthly_growth + float((amts * monthly_growth ** fracs).sum())
+        paid = float(amts.sum())
+        invested += paid
+        cost += paid
         if m % step == 0:
             points.append(point(m))
 
     final = points[-1]
     added = final["invested"] - start_value
+    flow_t = np.array(([0.0] if start_value > 0 else []) + [t for t, _ in schedule] + [float(months)])
+    flow_base = np.array(([-float(start_value)] if start_value > 0 else []) + [-amt for _, amt in schedule] + [0.0])
 
     def cagr(end: float) -> float | None:
         """Money-weighted annual return that turns the contributions into `end`."""
-        flows = [(0, -start_value)] if start_value > 0 else []
-        s = float(monthly_sip)
-        for m in range(months):
-            if m > 0 and m % 12 == 0:
-                s *= 1 + step_up_pct / 100
-            flows.append((m, -s))
-        flows.append((months, end))
+        cf = flow_base.copy()
+        cf[-1] = end
         lo, hi = -0.99, 2.0
-        f = lambda r: sum(cf / (1 + r) ** (t / 12) for t, cf in flows)  # noqa: E731
+        f = lambda r: float((cf / (1 + r) ** (flow_t / 12)).sum())  # noqa: E731
         if f(lo) * f(hi) > 0:
             return None
         for _ in range(100):
@@ -192,9 +263,14 @@ def project(*, start_value: float, by_class: dict[str, float], metrics: dict, ob
             lo, hi = (mid, hi) if f(lo) * f(mid) > 0 else (lo, mid)
         return (lo + hi) / 2
 
+    per_year = SIP_FREQUENCIES[sip_frequency]
+
     return {
         "assumptions": {**{k: v for k, v in a.items() if k != "warnings"}, "risk_free_rate": risk_free,
-                        "monthly_sip": monthly_sip, "step_up_pct": step_up_pct, "years": years,
+                        "monthly_sip": float(sip_amount) * per_year / 12,   # the same money spread per month
+                        "sip_amount": float(sip_amount), "sip_frequency": sip_frequency,
+                        "installments_per_year": per_year, "sip_first_year": float(sip_amount) * per_year,
+                        "installments": len(schedule), "step_up_pct": step_up_pct, "years": years,
                         "interval": interval, "start_value": start_value, "simulations": simulations,
                         "start_cost": float(start_value if start_cost is None else start_cost),
                         "tax_gains_pct": tax_gains_pct, "gains_exemption": gains_exemption,

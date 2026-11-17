@@ -1,4 +1,4 @@
-import type { PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
+import type { OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
 
 declare global {
   interface Window {
@@ -8,6 +8,22 @@ declare global {
 
 const BASE = window.qt?.engineUrl ?? import.meta.env.VITE_ENGINE_URL ?? "http://127.0.0.1:8765";
 const TOKEN = window.qt?.token ?? "";
+
+/** The engine's error as a sentence: a plain string, or FastAPI's list of
+ *  field errors (e.g. "Trade date … is in the future"). */
+function errorText(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((d: { msg?: string; loc?: unknown[] }) => {
+        const msg = String(d?.msg ?? "").replace(/^Value error, /, "");
+        const field = Array.isArray(d?.loc) ? String(d.loc[d.loc.length - 1] ?? "") : "";
+        return msg.startsWith("Trade date") || !field ? msg : `${field.replace(/_/g, " ")}: ${msg}`;
+      })
+      .join("; ");
+  }
+  return null;
+}
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -20,7 +36,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(typeof body?.detail === "string" ? body.detail : `Engine error ${res.status}`);
+    throw new Error(errorText(body?.detail) ?? `Engine error ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
@@ -112,8 +128,13 @@ export const api = {
     if (!res.ok) throw new Error("Nothing cached for this symbol yet");
     return res.blob();
   },
-  optimize: (body: { scope?: "portfolio" | "starred" | "both"; symbols?: string[]; lookback_days?: number; max_weight?: number }) =>
-    json<OptimizerResult>("POST", "/api/optimizer", body),
+  optimize: (body: OptimizeRequest) => json<OptimizerResult>("POST", "/api/optimizer", body),
+  periodReturns: (period: string) =>
+    call<{ period: string; benchmark: string; benchmark_name: string; benchmark_return: number | null;
+           from: string | null; to: string | null; returns: Record<string, number | null>; live: boolean }>(
+      `/api/period-returns?period=${encodeURIComponent(period)}`),
+  rolling: (window: number, span?: number) =>
+    call<Rolling>(`/api/rolling?window=${window}${span ? `&span=${span}` : ""}`),
   insight: () => call<InsightState>("/api/insight"),
   saveInsightKey: (key: string) =>
     call<InsightState>("/api/insight/key", {
@@ -179,6 +200,8 @@ export const api = {
   editWealth: (id: number, item: WealthInput) => json<WealthItemRow>("PUT", `/api/wealth/${id}`, item),
   deleteWealth: (id: number) => call<{ deleted: number }>(`/api/wealth/${id}`, { method: "DELETE" }),
   projection: (body: { mode: "continue" | "fresh"; monthly_sip: number; step_up_pct: number; years: number;
+                       sip_amount?: number;
+                       sip_frequency?: "daily" | "weekly" | "monthly" | "bimonthly" | "quarterly" | "halfyearly" | "yearly";
                        interval: "monthly" | "quarterly" | "yearly"; outlook: "past" | "cautious" | "neutral" | "optimistic";
                        include_wealth: boolean; tax_gains_pct: number; gains_exemption: number;
                        tax_interest_pct: number; renew_deposits: boolean }) =>
@@ -193,19 +216,27 @@ export function openTicks(onSnapshot: (s: LiveSnapshot) => void, onDrop: () => v
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   const url = `${BASE.replace(/^http/, "ws")}/ws/ticks${TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : ""}`;
+  let failures = 0;
   const connect = () => {
     ws = new WebSocket(url);
+    ws.onopen = () => { failures = 0; };
     ws.onmessage = (e) => {
+      let msg: LiveSnapshot;
       try {
-        onSnapshot(JSON.parse(e.data) as LiveSnapshot);
-      } catch {
-        /* ignore a malformed frame */
+        msg = JSON.parse(e.data) as LiveSnapshot;
+      } catch (err) {
+        console.warn("live: dropped a malformed frame", err);
+        return;
       }
+      onSnapshot(msg);
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (stopped) return;
       onDrop();
-      timer = setTimeout(connect, 2000);
+      if (e.code === 4401) return;          // wrong session token: retrying cannot help
+      // 1s, 2s, 4s ... up to 15s, so a stopped engine is not hammered.
+      failures += 1;
+      timer = setTimeout(connect, Math.min(15000, 500 * 2 ** Math.min(failures, 5)));
     };
   };
   connect();

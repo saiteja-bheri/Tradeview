@@ -16,6 +16,8 @@ DEFAULT_SETTINGS: dict[str, float | int | str] = {
     "horizon_days": 1,
     "lookback_days": 252,
     "cov_horizon_days": 1,
+    # Trading days of history behind the covariance matrix; 0 = same as lookback_days.
+    "cov_lookback_days": 0,
     "risk_free_rate": 0.065,
     # How money is shown. The ledger and every calculation stay in INR; values are
     # converted at the latest rate for display. AUTO = the currency most of the

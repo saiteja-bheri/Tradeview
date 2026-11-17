@@ -12,6 +12,7 @@ from datetime import datetime
 
 import pandas as pd
 
+from app.ledger import table
 from app.market import symbols
 
 BROKER = "upstox"
@@ -82,7 +83,9 @@ def to_yahoo_symbol(scrip: str, exchange: str) -> str:
 
 
 def parse(content: bytes | str) -> ParseResult:
-    text = content.decode("utf-8-sig") if isinstance(content, bytes) else content
+    text = content.decode("utf-8-sig", errors="replace") if isinstance(content, bytes) else content
+    if table.looks_binary(text):
+        raise ValueError(f"{table.UNREADABLE}: it looks like a binary file")
     lines = [ln for ln in text.splitlines() if ln.strip()]
     start = _find_header(lines)
     df = pd.read_csv(io.StringIO("\n".join(lines[start:])), dtype=str, keep_default_na=False)

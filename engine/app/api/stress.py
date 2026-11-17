@@ -15,6 +15,7 @@ from app.api.routes import require_token
 from app.db.models import Instrument
 from app.ledger.positions import EPS, build_positions
 from app.market import fx, history, symbols
+from app.quant import metrics as qm
 from app.quant import service, stress
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
@@ -30,6 +31,7 @@ class StressIn(BaseModel):
 
 
 def _inr_prices(session: Session, cols: list[str], rates: fx.Rates) -> pd.DataFrame:
+    cols = list(dict.fromkeys(cols))   # the benchmark may also be a holding: convert it once
     _, adj = history.load_prices(session, cols)
     for s in cols:
         if s in adj.columns and symbols.fx_pair(rates.ccys.get(s, "INR")):
@@ -62,7 +64,8 @@ def run_stress(session: Session, body: StressIn, fetcher=None) -> dict:
     priced = [s for s in held if s in prices.columns and prices[s].notna().any()]
     last = {s: _at(prices[s], date.today()) for s in priced}
     values = np.array([positions[s].quantity * last[s] for s in priced])
-    rets = prices[priced + [bench]].ffill(limit=5).pct_change(fill_method=None).dropna(how="any").tail(lookback)
+    # Same alignment as the RISK tab, so both show the same betas.
+    rets = qm.aligned_returns(prices, priced + [bench], bench).tail(lookback)
     if len(rets) < MIN_DAYS:
         raise HTTPException(status_code=409, detail=f"Only {len(rets)} days of overlapping returns; need {MIN_DAYS}")
     asset, market = rets[priced].to_numpy(), rets[bench].to_numpy()

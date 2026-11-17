@@ -258,8 +258,24 @@ def test_covariance_horizon_and_lookback_options(client, upstox_csv, monkeypatch
     assert ten["correlation"][0][1] == pytest.approx(ten["correlation"][1][0])
 
     short = client.get("/api/metrics", params={"lookback_days": 63}).json()
-    assert short["observations"] == 63 and short["warnings"] == []
+    assert short["observations"] == 63
+    # 63 days hold only ~6 independent 10-day periods: said, not hidden
+    assert short["warnings"] == [w for w in short["warnings"] if "non-overlapping" in w] and short["warnings"]
     long = client.get("/api/metrics", params={"lookback_days": 1260}).json()
     assert long["observations"] == 299 and any("only 299" in w for w in long["warnings"])
     assert client.put("/api/settings", json={"cov_horizon_days": 0}).status_code == 400
     assert client.put("/api/settings", json={"lookback_days": 5000}).status_code == 400
+
+    # Month-to-year horizons, on their own covariance window.
+    assert client.put("/api/settings", json={"cov_horizon_days": 252}).status_code == 200
+    assert client.put("/api/settings", json={"cov_horizon_days": 253}).status_code == 400
+    client.put("/api/settings", json={"cov_horizon_days": 21, "lookback_days": 63, "cov_lookback_days": 252})
+    month = client.get("/api/metrics").json()
+    cov = month["covariance"]
+    assert month["observations"] == 63                     # risk ratios keep their own lookback
+    assert cov["window_days"] == 252 and cov["observations"] == 252 - 21 + 1
+    assert cov["independent_periods"] == 12
+    assert client.put("/api/settings", json={"cov_lookback_days": 30}).status_code == 400
+    # A one-month risk lookback is offered in the UI, so it must produce metrics.
+    client.put("/api/settings", json={"lookback_days": 21})
+    assert client.get("/api/metrics").json()["metrics"]["sharpe"] is not None

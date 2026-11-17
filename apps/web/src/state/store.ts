@@ -32,6 +32,8 @@ interface State {
   layoutEpoch: number;
   init: () => Promise<void>;
   reload: (refresh?: boolean) => Promise<void>;
+  /** Recompute metrics with today's live quotes, from cached history only. */
+  recomputeLive: () => Promise<void>;
   setParam: (patch: Partial<Settings>) => Promise<void>;
   importCsv: (file: File, columns?: Record<string, string | null>, headerRow?: number, broker?: string) => Promise<void>;
   importEverything: (file: File) => Promise<string[]>;
@@ -50,6 +52,8 @@ interface State {
 }
 
 let ticksOpen = false;
+let lastLiveRecompute = 0;
+const LIVE_RECOMPUTE_MS = 60_000;
 let promptedReviews = 0;
 let seq = 0; // drops responses that arrive after a newer request was sent
 
@@ -121,7 +125,17 @@ export const useStore = create<State>((set, get) => ({
         if (!ticksOpen) {
           ticksOpen = true;
           openTicks(
-            (live) => set({ live }),
+            (live) => {
+              set({ live });
+              // Beta, Sharpe, VaR and the rest follow live prices: recompute from
+              // the cache (no downloads) at most once a minute while quotes stream.
+              const now = Date.now();
+              if (live.status?.state === "live" && Object.keys(live.quotes ?? {}).length
+                  && now - lastLiveRecompute > LIVE_RECOMPUTE_MS && !get().busy) {
+                lastLiveRecompute = now;
+                get().recomputeLive();
+              }
+            },
             () => set((s) => (s.live ? { live: { ...s.live, status: { ...s.live.status, state: "connecting" } } } : {})),
           );
         }
@@ -136,8 +150,22 @@ export const useStore = create<State>((set, get) => ({
     set({ status: "down", error: "Engine is not reachable" });
   },
 
+  recomputeLive: async () => {
+    const mine = seq;
+    try {
+      const portfolio = await api.metrics(false);
+      // A settings change or import started meanwhile: its reload wins.
+      if (mine !== seq || get().busy) return;
+      setDisplay(portfolio.display);
+      set({ portfolio });
+    } catch {
+      /* the next tick tries again */
+    }
+  },
+
   reload: async (refresh = true) => {
     const mine = ++seq;
+    lastLiveRecompute = Date.now();
     set({ busy: true });
     try {
       const portfolio = await api.metrics(refresh);

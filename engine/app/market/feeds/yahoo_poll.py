@@ -3,6 +3,7 @@ access token is configured, so the live pipeline still works out of the box."""
 from __future__ import annotations
 
 import asyncio
+import math
 
 
 def fetch_quotes(symbols: list[str]) -> dict[str, tuple[float, float | None]]:
@@ -13,8 +14,10 @@ def fetch_quotes(symbols: list[str]) -> dict[str, tuple[float, float | None]]:
         try:
             info = yf.Ticker(symbol).fast_info
             last, prev = info.last_price, info.previous_close
-            if last:
-                out[symbol] = (float(last), float(prev) if prev else None)
+            last = float(last) if last is not None else math.nan
+            prev = float(prev) if prev is not None else math.nan
+            if math.isfinite(last) and last > 0:      # Yahoo returns NaN for halted/unknown symbols
+                out[symbol] = (last, prev if math.isfinite(prev) and prev > 0 else None)
         except Exception:
             continue  # one bad symbol must not stop the rest
     return out
@@ -30,7 +33,8 @@ class YahooPollFeed:
 
     async def run(self, hub) -> None:
         while True:
-            symbols = await asyncio.to_thread(hub.held_symbols)
+            # Holdings plus the benchmark, so beta and alpha can be recomputed intraday.
+            symbols = await asyncio.to_thread(getattr(hub, "tracked_symbols", hub.held_symbols))
             if symbols:
                 quotes = await asyncio.to_thread(self.fetcher, symbols)
                 for symbol, (last, prev) in quotes.items():

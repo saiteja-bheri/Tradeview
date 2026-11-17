@@ -26,20 +26,51 @@ def _cell(value: object) -> str:
     return str(value).strip()
 
 
+UNREADABLE = "This file could not be read as a CSV or Excel (.xlsx) report"
+
+
+def open_workbook(content: bytes):
+    """openpyxl workbook from bytes; a damaged or non-Excel file is a ValueError
+    (shown to the user as a 400), never a server error."""
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:  # pragma: no cover - dependency is declared
+        raise ValueError("Reading Excel reports needs the openpyxl package") from exc
+    try:
+        return load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:  # BadZipFile, KeyError, InvalidFileException, XML errors...
+        raise ValueError(f"{UNREADABLE}: the Excel file is damaged or not really .xlsx") from exc
+
+
+def looks_binary(text: str) -> bool:
+    """Undecodable bytes or control characters in a sizeable share of the text."""
+    sample = text[:4096]
+    if not sample:
+        return False
+    bad = sum(1 for ch in sample if ch == "�" or (ord(ch) < 32 and ch not in "\r\n\t"))
+    return bad / len(sample) > 0.05
+
+
 def read_rows(content: bytes | str) -> list[list[str]]:
     """CSV text or an .xlsx workbook (first sheet) as rows of strings."""
     if isinstance(content, bytes) and content[:2] == b"PK":
+        book = open_workbook(content)
         try:
-            from openpyxl import load_workbook
-        except ImportError as exc:  # pragma: no cover - dependency is declared
-            raise ValueError("Reading Excel reports needs the openpyxl package") from exc
-        book = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-        sheet = book.worksheets[0]
-        rows = [[_cell(v) for v in row] for row in sheet.iter_rows(values_only=True)]
-        book.close()
+            sheet = book.worksheets[0]
+            rows = [[_cell(v) for v in row] for row in sheet.iter_rows(values_only=True)]
+        except Exception as exc:
+            raise ValueError(f"{UNREADABLE}: {exc.__class__.__name__}") from exc
+        finally:
+            book.close()
     else:
         text = content.decode("utf-8-sig", errors="replace") if isinstance(content, bytes) else content
-        rows = [[_cell(v) for v in row] for row in csv.reader(io.StringIO(text))]
+        if looks_binary(text):
+            raise ValueError(f"{UNREADABLE}: it looks like a binary file")
+        try:
+            # newline="" lets the csv module handle \r, \n and \r\n line ends itself.
+            rows = [[_cell(v) for v in row] for row in csv.reader(io.StringIO(text, newline=""))]
+        except csv.Error as exc:
+            raise ValueError(f"{UNREADABLE}: {exc}") from exc
     return [r for r in rows if any(c for c in r)]
 
 

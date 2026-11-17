@@ -170,11 +170,11 @@ def test_interest_tax_and_deposit_maturity():
                          maturity_date=today + timedelta(days=365), monthly_contribution=0.0)
     ppf = SimpleNamespace(kind="ppf", amount=100_000, rate=7.1, start_date=None, maturity_date=None,
                           monthly_contribution=0.0)
-    gross = _other_paths([fd], 24)[-1]
-    taxed = _other_paths([fd], 24, tax_interest_pct=30)[-1]
+    gross = _other_paths([fd], 24)[0][-1]
+    taxed = _other_paths([fd], 24, tax_interest_pct=30)[0][-1]
     assert taxed == pytest.approx(100_000 * (1 + 0.08 / 12 * 0.7) ** 24, rel=1e-6) and taxed < gross
-    assert _other_paths([ppf], 24, tax_interest_pct=30)[-1] == _other_paths([ppf], 24)[-1]   # PPF untaxed
-    lapsed = _other_paths([fd], 24, renew_deposits=False)
+    assert _other_paths([ppf], 24, tax_interest_pct=30)[0][-1] == _other_paths([ppf], 24)[0][-1]   # PPF untaxed
+    lapsed = _other_paths([fd], 24, renew_deposits=False)[0]
     first_year = 100_000 * (1 + 0.08 / 12) ** 12
     assert lapsed[12] == pytest.approx(first_year, rel=1e-6)
     assert lapsed[24] == pytest.approx(first_year * (1 + 0.03 / 12) ** 12, rel=1e-6)          # savings rate after maturity

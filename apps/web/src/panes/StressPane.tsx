@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChartTip, ZoomHint, plotFrac, useZoomPan } from "../chartKit";
 import { api } from "../api/client";
 import type { StressResult } from "../api/types";
 import { inr, num, pct, signed, ticker, tone } from "../format";
@@ -19,11 +20,11 @@ export function StressPane() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (s = shock, h = horizon) => {
+  const run = async (s = shock, h = horizon, hist = history) => {
     setBusy(true);
     setError(null);
     try {
-      setR(await api.stress({ shock_pct: s, horizon_days: h, history }));
+      setR(await api.stress({ shock_pct: s, horizon_days: h, history: hist }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -31,19 +32,47 @@ export function StressPane() {
     }
   };
 
+  // Once a result is on screen, any change (preset, typed %, horizon, history) re-runs it.
+  useEffect(() => {
+    if (!r) return;
+    const t = setTimeout(() => run(shock, horizon, history), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shock, horizon, history]);
+
+  // Runs by itself the first time the tab has holdings to test; RUN re-runs on demand.
+  const started = useRef(false);
+  useEffect(() => {
+    if (hasHoldings && !started.current) {
+      started.current = true;
+      run();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasHoldings]);
+
+  // A new benchmark or lookback changes every beta: re-run a result already on screen.
+  const bench = useStore((s) => `${s.portfolio?.params.benchmark}|${s.portfolio?.params.lookback_days}`);
+  const shown = useRef(bench);
+  useEffect(() => {
+    if (shown.current === bench) return;
+    shown.current = bench;
+    if (r) run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bench]);
+
   const hz = HORIZONS.find((x) => x.value === (r?.horizon_days ?? horizon))?.label ?? `${r?.horizon_days}D`;
 
   return (
     <div className="flex h-full flex-col overflow-auto">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-2">
-        <Seg<number> label="MARKET MOVE" value={shock} options={SHOCKS} onChange={(v) => { setShock(v); if (r) run(v); }} />
+        <Seg<number> label="MARKET MOVE" value={shock} options={SHOCKS} onChange={setShock} />
         <label className="flex items-center gap-1 text-[10px] tracking-widest text-dim">
           OR
           <input type="number" min={-90} max={100} step={1} value={shock} aria-label="Custom market move, percent (negative = fall)"
                  onChange={(e) => setShock(Number(e.target.value))}
                  className="w-14 border border-line bg-bg px-1 py-0.5 text-right text-ink outline-none focus:border-amber" />%
         </label>
-        <Seg<number> label="OVER" value={horizon} options={HORIZONS} onChange={(v) => { setHorizon(v); if (r) run(shock, v); }} />
+        <Seg<number> label="OVER" value={horizon} options={HORIZONS} onChange={setHorizon} />
         <label className="flex items-center gap-1.5 text-[10px] tracking-widest text-dim"
                title="Replays crashes (2008, 2013, 2015-16, 2020, 2022) and rallies (2009, 2014, 2020-21, 2023-24). The first run downloads long price history once; it is cached after that.">
           <input type="checkbox" checked={history} onChange={(e) => setHistory(e.target.checked)} className="accent-amber" />
@@ -214,13 +243,41 @@ function Stat({ label, value, cls = "" }: { label: string; value: string; cls?: 
   );
 }
 
-/** Distribution of simulated P&L; losses red, gains green, with the 1-in-20 and 1-in-100 marks. */
+/** Share of simulations at or below `x` (or at or above, for gains), from the
+ *  histogram, interpolating linearly inside the bin that contains `x`. */
+function tailShare(edges: number[], counts: number[], x: number, below: boolean): number {
+  const n = counts.reduce((s, c) => s + c, 0) || 1;
+  let acc = 0;
+  for (let i = 0; i < counts.length; i++) {
+    const lo = edges[i], hi = edges[i + 1];
+    if (x >= hi) { acc += counts[i]; continue; }
+    if (x > lo) acc += counts[i] * (x - lo) / (hi - lo || 1);
+    break;
+  }
+  const atOrBelow = acc / n;
+  return below ? atOrBelow : 1 - atOrBelow;
+}
+
+/** Distribution of simulated P&L, losses red and gains green, with the 1-in-20
+ *  and 1-in-100 marks. Hover a bar for its range and how often it happened;
+ *  click or drag to set a threshold and read the chance of doing worse (or
+ *  better); scroll to zoom, drag with the threshold off to pan. */
 function Histogram({ r }: { r: StressResult }) {
   const { edges, counts } = r.monte_carlo.histogram;
-  const W = 520, H = 130, L = 8, R = 8, T = 8, B = 22;
-  const lo = edges[0], hi = edges[edges.length - 1], max = Math.max(...counts, 1);
+  const W = 560, H = 170, L = 10, R = 10, T = 14, B = 26;
+  const P = useMemo(() => ({ W, L, R }), []);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const full = useMemo<[number, number]>(() => [edges[0], edges[edges.length - 1]], [edges]);
+  const z = useZoomPan(svgRef, full, P, (full[1] - full[0]) / 20);
+  const [threshold, setThreshold] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [hover, setHover] = useState<number | null>(null);
+  const [lo, hi] = z.dom;
+  const total = r.portfolio_value || 1;
+  const n = counts.reduce((s, c) => s + c, 0) || 1;
+  const max = Math.max(...counts, 1);
   const sx = (v: number) => L + ((v - lo) / (hi - lo || 1)) * (W - L - R);
-  const bw = (W - L - R) / counts.length;
+  const valueAt = (clientX: number) => lo + plotFrac(svgRef.current, clientX, P) * (hi - lo);
   const marks = [
     { v: r.monte_carlo.percentiles.p1, label: "1/100" },
     { v: r.monte_carlo.percentiles.p5, label: "1/20" },
@@ -228,25 +285,90 @@ function Histogram({ r }: { r: StressResult }) {
     { v: r.monte_carlo.percentiles.p95, label: "1/20" },
     { v: r.monte_carlo.percentiles.p99, label: "1/100" },
   ];
+  const below = threshold != null && threshold < 0;
+  const share = threshold != null ? tailShare(edges, counts, threshold, below) : null;
+
+  const onDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.shiftKey || threshold == null) { z.bind.onPointerDown(e); }
+    if (!e.shiftKey) {
+      setDragging(true);
+      setThreshold(valueAt(e.clientX));
+      svgRef.current?.setPointerCapture(e.pointerId);
+    }
+  };
+  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const v = valueAt(e.clientX);
+    if (dragging) setThreshold(v);
+    else z.bind.onPointerMove(e);
+    const i = edges.findIndex((x, k) => k < counts.length && v >= x && v < edges[k + 1]);
+    setHover(i >= 0 ? i : null);
+  };
+
   return (
     <div className="px-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full min-w-[360px]" role="img"
-           aria-label="Histogram of simulated portfolio profit and loss">
-        {counts.map((c, i) => {
-          const mid = (edges[i] + edges[i + 1]) / 2;
-          const h = (c / max) * (H - T - B);
-          return <rect key={i} x={L + i * bw + 0.5} y={H - B - h} width={Math.max(bw - 1, 1)} height={h}
-                       fill={mid < 0 ? "var(--color-down)" : "var(--color-up)"} opacity={0.75} />;
-        })}
-        {marks.filter((m) => m.v >= lo && m.v <= hi).map((m) => (
-          <g key={`${m.label}${m.v}`}>
-            <line x1={sx(m.v)} x2={sx(m.v)} y1={T} y2={H - B} stroke="var(--color-ink)" strokeDasharray="3 3" strokeWidth="1" />
-            <text x={sx(m.v) + 3} y={T + 9} fontSize="9" fill="var(--color-ink)">{m.label}</text>
+      <div className="flex flex-wrap items-center gap-x-3 px-1 pb-1 text-[10.5px]">
+        {threshold != null ? (
+          <>
+            <span className="tabular-nums">
+              {below ? "Lose" : "Gain"} <span className={below ? "text-down" : "text-up"}>{signed(threshold)}</span>
+              {" "}({pct(threshold / total, 1)}) or {below ? "worse" : "better"}:{" "}
+              <span className="font-semibold text-amber">{pct(share, 1)}</span> of runs
+              <span className="text-dim"> · about 1 in {share && share > 0 ? Math.max(1, Math.round(1 / share)).toLocaleString("en-IN") : "—"}</span>
+            </span>
+            <button type="button" onClick={() => setThreshold(null)} className="text-[10px] text-dim underline hover:text-ink">CLEAR</button>
+          </>
+        ) : <span className="text-dim">Click or drag on the chart to set a loss or gain and read its chance</span>}
+        <ZoomHint zoomed={z.zoomed} reset={z.reset} extra="shift-drag pans when zoomed ·" />
+      </div>
+      <div className="relative overflow-x-auto">
+        <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} role="img"
+             className={`h-auto w-full min-w-[360px] cursor-crosshair touch-none select-none ${z.busy ? "" : "chart-anim"}`}
+             aria-label="Histogram of simulated portfolio profit and loss"
+             onPointerDown={onDown} onPointerMove={onMove}
+             onPointerUp={() => { setDragging(false); z.bind.onPointerUp(); }}
+             onPointerLeave={() => { setDragging(false); setHover(null); z.bind.onPointerLeave(); }}
+             onDoubleClick={z.bind.onDoubleClick}>
+          <defs><clipPath id="hist-clip"><rect x={L} y={0} width={W - L - R} height={H} /></clipPath></defs>
+          <g clipPath="url(#hist-clip)">
+            {counts.map((c, i) => {
+              const x0 = sx(edges[i]), x1 = sx(edges[i + 1]);
+              const h = (c / max) * (H - T - B);
+              const mid = (edges[i] + edges[i + 1]) / 2;
+              const inTail = threshold != null && (below ? mid <= threshold : mid >= threshold);
+              return (
+                <path key={i} className="tw"
+                      d={`M${(x0 + 0.5).toFixed(1)},${H - B} V${(H - B - h).toFixed(1)} H${Math.max(x1 - 0.5, x0 + 1).toFixed(1)} V${H - B} Z`}
+                      fill={mid < 0 ? "var(--color-down)" : "var(--color-up)"}
+                      opacity={hover === i ? 1 : threshold == null || inTail ? 0.8 : 0.25} />
+              );
+            })}
+            {marks.filter((m) => m.v >= lo && m.v <= hi).map((m) => (
+              <g key={`${m.label}${m.v}`}>
+                <line className="tw" x1={sx(m.v)} x2={sx(m.v)} y1={T} y2={H - B} stroke="var(--color-ink)" strokeDasharray="3 3" strokeWidth="1" />
+                <text x={sx(m.v) + 3} y={T + 2} fontSize="9" fill="var(--color-ink)">{m.label}</text>
+              </g>
+            ))}
+            {threshold != null && threshold >= lo && threshold <= hi && (
+              <line x1={sx(threshold)} x2={sx(threshold)} y1={T - 6} y2={H - B} stroke="var(--color-amber)" strokeWidth="2" />
+            )}
           </g>
-        ))}
-        <text x={L} y={H - 6} fontSize="9" fill="var(--color-dim)">{signed(lo)}</text>
-        <text x={W - R} y={H - 6} fontSize="9" textAnchor="end" fill="var(--color-dim)">{signed(hi)}</text>
-      </svg>
+          <text x={L} y={H - 8} fontSize="9" fill="var(--color-dim)">{signed(lo)}</text>
+          <text x={W / 2} y={H - 8} fontSize="9" textAnchor="middle" fill="var(--color-dim)">{signed((lo + hi) / 2)}</text>
+          <text x={W - R} y={H - 8} fontSize="9" textAnchor="end" fill="var(--color-dim)">{signed(hi)}</text>
+        </svg>
+        {hover != null && !dragging && (
+          <ChartTip x={sx((edges[hover] + edges[hover + 1]) / 2)} y={T + 10} W={W} H={H}>
+            <div className="tabular-nums">{signed(edges[hover])} to {signed(edges[hover + 1])}</div>
+            <div className="text-dim tabular-nums">{pct(edges[hover] / total, 1)} to {pct(edges[hover + 1] / total, 1)}</div>
+            <div className="mt-0.5 tabular-nums">{pct(counts[hover] / n, 2)} of runs ({counts[hover].toLocaleString("en-IN")})</div>
+            <div className="text-dim tabular-nums">
+              {edges[hover + 1] <= 0
+                ? `${pct(tailShare(edges, counts, edges[hover + 1], true), 1)} this bad or worse`
+                : `${pct(tailShare(edges, counts, edges[hover], false), 1)} this good or better`}
+            </div>
+          </ChartTip>
+        )}
+      </div>
     </div>
   );
 }

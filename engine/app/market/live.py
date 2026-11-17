@@ -5,6 +5,9 @@ here can send an order."""
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import math
 import time
 from typing import Protocol
 
@@ -14,6 +17,18 @@ from app.ledger.positions import EPS, build_positions
 from app.quant import service
 
 BROADCAST_INTERVAL = 1.0
+log = logging.getLogger(__name__)
+
+
+def _finite(obj):
+    """Copy of obj with NaN/inf floats replaced by None (strict JSON)."""
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, list | tuple):
+        return [_finite(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    return obj
 
 
 class Feed(Protocol):
@@ -59,28 +74,46 @@ class LiveHub:
     # --- called by feed adapters (on the event loop) ---
 
     def on_quote(self, symbol: str, ltp: float, prev_close: float | None, ts: float | None = None) -> None:
-        if not ltp or ltp <= 0:
+        # NaN slips past `ltp <= 0`, and one NaN makes the whole snapshot invalid
+        # JSON, which the browser silently drops: every price would freeze.
+        try:
+            ltp = float(ltp)
+            prev = float(prev_close) if prev_close is not None else None
+        except (TypeError, ValueError):
             return
-        prev = prev_close if prev_close and prev_close > 0 else None
+        if not math.isfinite(ltp) or ltp <= 0:
+            return
+        prev = prev if prev is not None and math.isfinite(prev) and prev > 0 else None
         self.quotes[symbol] = {
             "ltp": float(ltp),
             "prev_close": prev,
             "change": float(ltp - prev) if prev else None,
             "change_pct": float(ltp / prev - 1) if prev else None,
-            "ts": ts or time.time(),
+            "ts": float(ts) if ts and math.isfinite(ts) else time.time(),
         }
-        self._dirty.set()
+        if self._dirty is not None:
+            self._dirty.set()
 
     def set_status(self, state: str, detail: str = "") -> None:
         new = {"source": self.feed.name, "state": state, "detail": detail}
         if new != self.status:
             self.status = new
-            self._dirty.set()
+            if self._dirty is not None:
+                self._dirty.set()
 
     def held_symbols(self) -> list[str]:
         with self._sessionmaker() as session:
             positions = service.load_positions(session)
         return sorted(s for s, p in positions.items() if p.quantity > EPS)
+
+    def tracked_symbols(self) -> list[str]:
+        """Holdings plus the benchmark, so beta and alpha can move intraday.
+        Feeds that can quote any Yahoo symbol use this; broker feeds that need
+        instrument keys stay on held_symbols."""
+        held = self.held_symbols()
+        with self._sessionmaker() as session:
+            bench = service.get_settings(session)["benchmark"]
+        return held + ([bench] if held and bench and bench not in held else [])
 
     # --- called by API routes (possibly from worker threads) ---
 
@@ -91,14 +124,17 @@ class LiveHub:
 
     # --- snapshot and fan-out ---
 
-    def snapshot(self) -> dict:
+    def snapshot(self, quotes: dict | None = None) -> dict:
+        """`quotes` is a copy taken on the event loop; feeds keep adding to
+        self.quotes while this runs on a worker thread."""
+        quotes = dict(self.quotes) if quotes is None else quotes
         with self._sessionmaker() as session:
             trades, actions, rates, _ = service.inr_ledger(session)
         positions = build_positions(trades, actions)
         held = {s: p for s, p in positions.items() if p.quantity > EPS}
         rows: dict[str, dict] = {}
         for symbol, pos in held.items():
-            quote = self.quotes.get(symbol)
+            quote = quotes.get(symbol)
             fx = rates.rate(symbol)      # quotes are in the listing's currency; the ledger is in INR
             if not quote or fx is None:
                 continue
@@ -111,8 +147,8 @@ class LiveHub:
         day = [r["day_pnl"] for r in rows.values() if r["day_pnl"] is not None]
         return {
             "type": "snapshot",
-            "status": self.status,
-            "quotes": self.quotes,
+            "status": dict(self.status),
+            "quotes": quotes,
             "portfolio": {
                 "held": len(held),
                 "priced": len(rows),
@@ -123,24 +159,51 @@ class LiveHub:
             },
         }
 
+    def quotes_copy(self) -> dict:
+        """Copy of the quotes, taken on the event loop (where feeds write them)."""
+        return {s: dict(q) for s, q in self.quotes.items()}
+
+    def safe_snapshot(self, quotes: dict | None = None) -> dict:
+        """The snapshot as strict JSON (non-finite numbers become null). If it
+        cannot be built (e.g. the database is busy mid-import), the quotes and
+        status still go out and the error is reported in the status detail."""
+        quotes = self.quotes_copy() if quotes is None else quotes
+        try:
+            return _finite(self.snapshot(quotes))
+        except Exception as exc:
+            log.warning("live snapshot failed: %s", exc)
+            status = {**self.status, "detail": f"Portfolio not updated: {exc.__class__.__name__}"}
+            return _finite({"type": "snapshot", "status": status, "quotes": quotes, "portfolio": None})
+
+    async def _encoded(self) -> str:
+        message = await asyncio.to_thread(self.safe_snapshot, self.quotes_copy())
+        return json.dumps(message, allow_nan=False)
+
     async def add(self, ws: WebSocket) -> None:
-        await ws.send_json(await asyncio.to_thread(self.snapshot))
+        await ws.send_text(await self._encoded())
         self.clients.add(ws)
 
     def remove(self, ws: WebSocket) -> None:
         self.clients.discard(ws)
 
     async def _broadcast(self) -> None:
+        # One failure must never end this loop: if it did, every client would
+        # keep its socket open but receive nothing again until a restart.
         while True:
-            await self._dirty.wait()
-            self._dirty.clear()
-            if self.clients:
-                message = await asyncio.to_thread(self.snapshot)
-                for ws in list(self.clients):
-                    try:
-                        await ws.send_json(message)
-                    except Exception:
-                        self.clients.discard(ws)
+            try:
+                await self._dirty.wait()
+                self._dirty.clear()
+                if self.clients:
+                    text = await self._encoded()
+                    for ws in list(self.clients):
+                        try:
+                            await ws.send_text(text)
+                        except Exception:
+                            self.clients.discard(ws)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:          # pragma: no cover - defensive
+                log.exception("live broadcast failed: %s", exc)
             await asyncio.sleep(BROADCAST_INTERVAL)
 
     async def _run_feed(self) -> None:

@@ -84,8 +84,11 @@ def compute_returns(trades, positions: dict, value_now: dict[str, float],
         unrealized = (held_value - open_cost) if held_value is not None else 0.0
         gain = pos.realized_pnl + unrealized + pos.dividends
         sym_flows = list(flows[symbol]) + ([(today, held_value)] if held_value else [])
-        all_flows.extend(sym_flows)
         if priced:
+            # A holding with no price has no closing value to set against its
+            # purchases; counting it would read as money lost. Same rule as the
+            # total return above, so XIRR and total return describe the same holdings.
+            all_flows.extend(sym_flows)
             total_gain += gain
             total_in += invested[symbol]
         per[symbol] = {

@@ -160,16 +160,18 @@ def read_sheets(content: bytes) -> list[tuple[str, list[list[str]]]]:
     """[(sheet name, rows)] for every non-empty sheet; a CSV is one unnamed sheet."""
     if content[:2] != b"PK":
         return [("", table.read_rows(content))]
-    from openpyxl import load_workbook
-
-    book = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    book = table.open_workbook(content)
     out = []
-    for sheet in book.worksheets:
-        rows = [[table._cell(v) for v in row] for row in sheet.iter_rows(values_only=True)]
-        rows = [r for r in rows if any(c for c in r)]
-        if rows:
-            out.append((sheet.title, rows))
-    book.close()
+    try:
+        for sheet in book.worksheets:
+            rows = [[table._cell(v) for v in row] for row in sheet.iter_rows(values_only=True)]
+            rows = [r for r in rows if any(c for c in r)]
+            if rows:
+                out.append((sheet.title, rows))
+    except Exception as exc:
+        raise ValueError(f"{table.UNREADABLE}: {exc.__class__.__name__}") from exc
+    finally:
+        book.close()
     return out
 
 
@@ -790,7 +792,7 @@ def import_all(session: Session, content: bytes) -> dict:
               "bonds": sum(r.added + r.updated for r in results if r.kind == "bonds"),
               "wealth": sum(r.added + r.updated for r in results if r.kind == "wealth")}
     return {"sheets": [r.__dict__ for r in results], "totals": totals,
-            "skipped": [s for r in results for s in r.skipped]}
+            "skipped": [s for r in results for s in r.skipped] + stored.skipped}
 
 
 # ---------------------------------------------------------------- template

@@ -110,8 +110,13 @@ def correlation_stress(values: np.ndarray, asset: np.ndarray, confidence: float,
     total = float(values.sum())
     w = values / total
     cov = np.atleast_2d(np.cov(asset, rowvar=False, ddof=1))
-    sd = np.sqrt(np.diag(cov))
-    corr = cov / np.outer(sd, sd)
+    sd = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+    # A holding whose price never moved (e.g. a bond priced by hand) has no
+    # volatility: it adds no risk, and its correlation is taken as 0 rather
+    # than 0/0, which used to turn the whole VaR into "unavailable".
+    with np.errstate(divide="ignore", invalid="ignore"):
+        corr = np.where(np.outer(sd, sd) > 0, cov / np.outer(sd, sd), 0.0)
+    np.fill_diagonal(corr, 1.0)
     stressed = corr + (1 - corr) * pull
     np.fill_diagonal(stressed, 1.0)
     z = float(norm.ppf(confidence))

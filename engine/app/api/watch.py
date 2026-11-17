@@ -308,8 +308,15 @@ class OptimiseIn(BaseModel):
         default="portfolio", description="portfolio = current holdings (default); starred = starred stocks; both")
     symbols: list[str] | None = Field(default=None, description="An explicit list; overrides scope")
     include_holdings: bool = Field(default=False, description="Deprecated: same as scope=both")
-    lookback_days: int = Field(default=504, ge=60, le=1260)
+    lookback_days: int = Field(default=504, ge=60, le=2520)
     max_weight: float = Field(default=0.35, gt=0, le=1)
+    min_weight: float = Field(default=0.0, ge=0, lt=1, description="Smallest weight each stock must get")
+    risk_free_rate: float | None = Field(default=None, ge=0, lt=1,
+                                         description="Annual rate for Sharpe; default = the saved setting")
+    target_return: float | None = Field(default=None, gt=-1, lt=10, description="Annual return to reach at least risk")
+    target_volatility: float | None = Field(default=None, gt=0, lt=5, description="Annual volatility budget")
+    exclude: list[str] = Field(default_factory=list, description="Symbols to leave out")
+    frontier_points: int = Field(default=30, ge=8, le=80)
 
 
 @router.post("/optimizer")
@@ -340,7 +347,8 @@ def run_optimiser(session: Session, body: OptimiseIn, fetcher=None) -> dict:
         wanted = holdings + starred
     else:
         wanted = holdings
-    wanted = list(dict.fromkeys(w for w in wanted if not w.startswith("BOND:")))
+    skip = {x.strip().upper() for x in body.exclude}
+    wanted = list(dict.fromkeys(w for w in wanted if not w.startswith("BOND:") and w.upper() not in skip))
     if len(wanted) < 2:
         need = {"portfolio": "Hold at least two stocks (or optimise the starred list)",
                 "starred": "Star at least two stocks", "both": "Hold or star at least two stocks",
@@ -375,7 +383,8 @@ def run_optimiser(session: Session, body: OptimiseIn, fetcher=None) -> dict:
     if len(rets) < 60:
         raise HTTPException(status_code=409, detail=f"Only {len(rets)} overlapping days of returns; need 60")
 
-    rf = float(service.get_settings(session)["risk_free_rate"])
+    rf = (float(body.risk_free_rate) if body.risk_free_rate is not None
+          else float(service.get_settings(session)["risk_free_rate"]))
     current = None
     in_both = [sym for sym in usable if sym in held]
     if in_both:
@@ -383,7 +392,16 @@ def run_optimiser(session: Session, body: OptimiseIn, fetcher=None) -> dict:
         current = {sym: held[sym].quantity * last[sym] for sym in in_both}
         if len(in_both) < len(usable):
             warnings.append("CURRENT compares only the stocks you hold among these")
-    result = optimizer.optimise(rets.to_numpy(), usable, rf, body.max_weight, current)
+    result = optimizer.optimise(rets.to_numpy(), usable, rf, body.max_weight, current,
+                                frontier_points=body.frontier_points, min_weight=body.min_weight,
+                                target_return=body.target_return, target_volatility=body.target_volatility)
+    if result["min_weight"] < body.min_weight:
+        warnings.append(f"Floor lowered to {result['min_weight']:.1%}: {len(usable)} stocks cannot each get "
+                        f"{body.min_weight:.0%}")
+    if result.get("target_note"):
+        warnings.append(result["target_note"])
+    if body.lookback_days > len(rets) + 5:
+        warnings.append(f"Asked for {body.lookback_days} days of history; {len(rets)} overlapping days exist")
     names = {i.symbol: i.name for i in session.scalars(select(Instrument).where(Instrument.symbol.in_(usable)))}
     for a in result["assets"]:
         a["name"] = names.get(a["symbol"], "")

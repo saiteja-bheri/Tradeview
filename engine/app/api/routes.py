@@ -6,6 +6,7 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta
@@ -14,7 +15,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,12 +23,25 @@ from app import config
 from app.ai import memo as memo_ai
 from app.ai.gemini import InsightError
 from app.db.models import Bond, CorporateAction, Instrument, Memo, Trade, WealthItem
+from app.ledger.positions import held_on
 from app.ledger import detect, ingest, mapping, table, upstox, workbook
 from app.market import commodities, symbols
 from app.market import search as market_search
 from app.market.live import LiveHub
 from app.quant import service
 from app.quant import wealth as wealth_math
+
+
+def _unreadable(exc: Exception) -> HTTPException:
+    """Last line of defence for uploads: a file that trips a parser in an
+    unexpected way is the user's file being unreadable, not a server fault.
+    Logged with its traceback so a real parser bug is still visible."""
+    log.exception("upload could not be parsed")
+    return HTTPException(status_code=400, detail=f"{table.UNREADABLE} ({exc.__class__.__name__}). "
+                                                 "Check it opens in a spreadsheet, or export it again from the broker.")
+
+
+log = logging.getLogger(__name__)
 
 
 def get_session(request: Request):
@@ -55,6 +69,7 @@ class SettingsIn(BaseModel):
     benchmark: str | None = None
     benchmark_name: str | None = None
     cov_horizon_days: int | None = None
+    cov_lookback_days: int | None = None
     confidence: float | None = None
     horizon_days: int | None = None
     lookback_days: int | None = None
@@ -82,6 +97,26 @@ class TradeIn(BaseModel):
     # "INTL" when the symbol was picked from an international search result (AAPL),
     # so a bare ticker is not turned into an NSE one. Price is in that listing's currency.
     market: Literal["IN", "INTL"] | None = None
+
+    @field_validator("traded_at")
+    @classmethod
+    def _not_in_future(cls, v: datetime) -> datetime:
+        if v.date() > date.today():
+            raise ValueError(f"Trade date {v.date():%d %b %Y} is in the future; record trades once they happen")
+        return v
+
+
+def _check_sale(session: Session, symbol: str, body: "TradeIn", skip_id: int | None = None) -> None:
+    """A recorded sale cannot exceed what the ledger held at that moment."""
+    if body.side != "SELL":
+        return
+    trades = [t for t in session.scalars(select(Trade).where(Trade.symbol == symbol)) if t.id != skip_id]
+    actions = session.scalars(select(CorporateAction).where(CorporateAction.symbol == symbol)).all()
+    held = held_on(trades, actions, symbol, body.traded_at.replace(tzinfo=None))
+    if body.quantity > held + 1e-9:
+        raise HTTPException(status_code=400, detail=(
+            f"You held {held:g} {symbol} on {body.traded_at:%d %b %Y}, so a sale of {body.quantity:g} is not "
+            "possible. Record the earlier purchase (or the split/bonus) first, or correct the quantity."))
 
 
 _LEDGER_SYMBOL = re.compile(r"^[A-Z0-9&_-]{1,30}\.(NS|BO)$")
@@ -226,6 +261,8 @@ async def import_preview(file: UploadFile = File(...)):
         return await asyncio.to_thread(_preview, content)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _unreadable(exc) from exc
 
 
 @router.post("/ledger/import")
@@ -263,12 +300,14 @@ async def import_ledger(request: Request, file: UploadFile = File(...),
         source, parsed = await asyncio.to_thread(run)
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _unreadable(exc) from exc
 
     result = ingest.store_trades(session, parsed.trades)
     session.commit()
     _poke(request)
     return {"broker": source, "imported": result.imported, "duplicates": result.duplicates,
-            "updated": result.updated, "skipped": parsed.skipped}
+            "updated": result.updated, "skipped": parsed.skipped + result.skipped}
 
 
 @router.get("/import/everything/template")
@@ -287,6 +326,8 @@ async def everything_preview(file: UploadFile = File(...)):
         return await asyncio.to_thread(workbook.preview, content)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _unreadable(exc) from exc
 
 
 @router.post("/import/everything")
@@ -303,6 +344,8 @@ async def everything_import(request: Request, file: UploadFile = File(...)):
         result = await asyncio.to_thread(run)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise _unreadable(exc) from exc
     _poke(request)
     return result
 
@@ -318,6 +361,7 @@ def list_trades(session: Session = Depends(get_session)):
 def record_trade(body: TradeIn, request: Request, session: Session = Depends(get_session)):
     """Records a trade that already happened at a broker. Local bookkeeping only."""
     symbol = _ledger_symbol(body.symbol, session, body.market)
+    _check_sale(session, symbol, body)
     trade = Trade(broker="manual", trade_id=f"m:{uuid.uuid4().hex}", symbol=symbol, side=body.side,
                   quantity=body.quantity, price=body.price,
                   traded_at=body.traded_at.replace(tzinfo=None),
@@ -336,7 +380,9 @@ def amend_trade(trade_id: int, body: TradeIn, request: Request,
     trade = session.get(Trade, trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="No such trade in the ledger")
-    trade.symbol = _ledger_symbol(body.symbol, session, body.market)
+    symbol = _ledger_symbol(body.symbol, session, body.market)
+    _check_sale(session, symbol, body, skip_id=trade.id)
+    trade.symbol = symbol
     trade.side, trade.quantity, trade.price = body.side, body.quantity, body.price
     trade.traded_at = body.traded_at.replace(tzinfo=None)
     _remember_instrument(session, trade.symbol, body.name)
@@ -395,21 +441,53 @@ def search_stocks(q: str = Query("", max_length=64), limit: int = Query(12, ge=1
 
 @router.get("/metrics")
 def metrics(
+    request: Request,
     benchmark: str | None = None,
     cov_horizon_days: int | None = None,
     confidence: float | None = None,
     horizon_days: int | None = None,
     lookback_days: int | None = None,
     risk_free_rate: float | None = None,
+    cov_lookback_days: int | None = None,
     refresh: bool = Query(True, description="Refresh prices from Yahoo (at most once a day)"),
+    live: bool = Query(True, description="Count today's live quotes as a provisional daily bar"),
     session: Session = Depends(get_session),
 ):
     overrides = {"benchmark": benchmark, "cov_horizon_days": cov_horizon_days, "confidence": confidence, "horizon_days": horizon_days,
-                 "lookback_days": lookback_days, "risk_free_rate": risk_free_rate}
+                 "lookback_days": lookback_days, "risk_free_rate": risk_free_rate,
+                 "cov_lookback_days": cov_lookback_days}
     try:
-        return service.compute(session, overrides, refresh=refresh)
+        return service.compute(session, overrides, refresh=refresh, quotes=_live_quotes(request, live))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _live_quotes(request: Request | None, wanted: bool = True) -> dict | None:
+    hub = getattr(request.app.state, "hub", None) if request is not None else None
+    return dict(hub.quotes) if wanted and hub is not None else None
+
+
+@router.get("/period-returns")
+def period_returns(
+    request: Request,
+    period: str = Query("1M", pattern="^(1D|1W|1M|3M|6M|1Y|YTD)$"),
+    live: bool = Query(True),
+    session: Session = Depends(get_session),
+):
+    """Every holding's return over the period (for the heatmap), and the benchmark's."""
+    return service.period_returns(session, period, quotes=_live_quotes(request, live))
+
+
+@router.get("/rolling")
+def rolling_metrics(
+    request: Request,
+    window: int = Query(63, ge=10, le=756, description="Trading days in each trailing window"),
+    span: int | None = Query(None, ge=21, le=2520, description="Trading days to plot (default: the risk lookback)"),
+    live: bool = Query(True),
+    session: Session = Depends(get_session),
+):
+    """Rolling Sharpe, Sortino, volatility, return, beta and alpha of today's mix."""
+    return service.rolling(session, window, span, quotes=_live_quotes(request, live))
 
 
 @router.get("/settings")
