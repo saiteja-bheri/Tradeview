@@ -6,6 +6,31 @@ no order routing of any kind.
 
 Runs on macOS and Windows. All commands below are the same on both.
 
+## Download
+
+Ready-to-install apps, no Python or Node needed:
+
+| System | Download |
+| --- | --- |
+| macOS, Apple silicon (M1 and later) | [QuantTerminal-mac-arm64.dmg](https://github.com/saiteja-bheri/Tradeview/releases/latest/download/QuantTerminal-mac-arm64.dmg) |
+| Windows 10/11, 64-bit | [QuantTerminal-win-x64.exe](https://github.com/saiteja-bheri/Tradeview/releases/latest/download/QuantTerminal-win-x64.exe) |
+
+All versions and release notes: [Releases](https://github.com/saiteja-bheri/Tradeview/releases).
+Intel Macs are not supported by the download yet; run from source instead (below).
+
+The apps are not code-signed, so each system asks once before the first launch:
+
+- **macOS:** open the .dmg and drag Quant Terminal to Applications. Open it once;
+  when macOS refuses, go to System Settings > Privacy & Security and choose
+  **Open Anyway**. If macOS says the app "is damaged", run this once in Terminal:
+  `xattr -dr com.apple.quarantine "/Applications/Quant Terminal.app"`
+- **Windows:** run the .exe. On the SmartScreen prompt choose **More info >
+  Run anyway**, then follow the installer.
+
+The first launch can take up to a minute while the system checks the bundled
+engine; later launches take a second or two. Your ledger stays on your
+computer, and the app never places trades.
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -45,14 +70,20 @@ npm run package        # .dmg on macOS, .exe installer on Windows, in release/
 
 Each installer has to be built on its own system, because the Python engine is
 frozen into a native binary (with PyInstaller) and bundled into the app. The
-installed app needs neither Python nor Node. `.github/workflows/release.yml`
-builds both on GitHub (run it from the Actions tab or push a `v*` tag).
+installed app needs neither Python nor Node.
 
-The builds are not code-signed. On macOS, open the app the first time with
-right-click > Open; on Windows, choose "More info" > "Run anyway" on the
-SmartScreen prompt. Signing needs an Apple Developer ID and a Windows
-code-signing certificate. The first launch after installing can take up to a
-minute while the system checks the engine; later launches take a second or two.
+**Publishing a release.** `.github/workflows/release.yml` builds both installers
+on GitHub's own macOS and Windows machines, runs the engine tests on each, and
+attaches `QuantTerminal-mac-arm64.dmg` and `QuantTerminal-win-x64.exe` to a
+GitHub Release, which the Download links above always point to:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Nothing is built on your own computer for a release. Signing the apps needs an
+Apple Developer ID and a Windows code-signing certificate; see Download for how
+to open the unsigned builds.
 
 ## Engine on its own
 

@@ -53,7 +53,7 @@ run("Freeze engine", venvPy, [
 
 // 3. Desktop app + installer -> release/
 const builder = join(dirname(require.resolve("electron-builder/package.json")), "cli.js");
-const args = [builder, win ? "--win" : "--mac"];
+const args = [builder, win ? "--win" : "--mac", "--publish", "never"];   // releases are published by the GitHub workflow
 if (process.argv.includes("--dir")) args.push("--dir");
 run("Package desktop app", process.execPath, args, desktop);
 

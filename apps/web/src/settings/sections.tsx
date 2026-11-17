@@ -10,6 +10,8 @@ import { ConnectionsPanel } from "../ribbon/ConnectionsDialog";
 import { useStore } from "../state/store";
 import { Seg } from "../ui";
 
+const RELEASES = "https://github.com/saiteja-bheri/Tradeview/releases/latest";
+
 export const CURRENCIES = ["AUTO", "INR", "USD", "EUR", "GBP", "JPY", "AED", "SGD", "AUD", "CAD", "CHF", "HKD"];
 
 const button = "rounded-md border border-line px-3 py-1.5 text-dim hover:border-accent hover:text-ink disabled:opacity-40";
@@ -201,6 +203,11 @@ export function AboutSection() {
       <Field label="RISK-FREE RATE">{pct(rf ?? null, 2)}</Field>
       <Field label="TRADING">
         <span>It cannot place, change or cancel orders with any broker. Trades you add are records of trades made elsewhere.</span>
+      </Field>
+      <Field label="DOWNLOAD" hint="Installers for macOS (Apple silicon) and Windows, to share or to update this app.">
+        <a href={RELEASES} target="_blank" rel="noreferrer noopener" className="text-accent underline hover:text-ink">
+          Latest release on GitHub
+        </a>
       </Field>
     </Card>
   );
