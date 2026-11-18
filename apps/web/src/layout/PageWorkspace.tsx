@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { ActionsPane } from "../panes/ActionsPane";
 import { ChartPane } from "../panes/ChartPane";
 import { CovariancePane } from "../panes/CovariancePane";
+import { FactorsPane } from "../panes/FactorsPane";
 import { GlobalMarketsCard } from "../panes/GlobalMarketsCard";
 import { HeatmapPane } from "../panes/HeatmapPane";
 import { HistoryPane } from "../panes/HistoryPane";
@@ -29,7 +30,7 @@ export const PANES: Record<string, () => React.JSX.Element> = {
   chart: ChartPane, stock: StockPanel, updates: PriceUpdates,
   indexes: IndexesCard, global: GlobalMarketsCard, movers: MoversCard, heatmap: HeatmapPane, news: NewsPane,
   risk: RiskPane, stress: StressPane, performance: PerformancePane, covariance: CovariancePane,
-  optimizer: OptimizerPane, insight: InsightPane, plan: PlanPane, wealth: WealthPane,
+  optimizer: OptimizerPane, insight: InsightPane, plan: PlanPane, wealth: WealthPane, factors: FactorsPane,
 };
 
 type DockPage = Exclude<PageId, "settings">;

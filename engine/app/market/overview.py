@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.db.models import Instrument, Watch
 from app.ledger.positions import EPS
-from app.market import history
+from app.market import history, indices
 from app.quant import service
 
 QuoteFetcher = Callable[[list[str]], dict[str, tuple[float, float]]]
@@ -90,14 +90,23 @@ def build(session: Session, universe: str, window: int, *,
     benchmark = service.get_settings(session)["benchmark"]
     strip = config.INDEX_STRIP + ([benchmark] if benchmark not in config.INDEX_STRIP else [])
     global_syms = [s for s, _, _ in config.GLOBAL_INDICES]
-    pool = config.NIFTY50 if universe == "nifty50" else _mine(session)
     names = {**config.BENCHMARK_NAMES, **{s: n for s, n, _ in config.GLOBAL_INDICES}}
+    note = ""
+    if universe == "nifty500":
+        try:
+            listed = indices.constituents("nifty500", config.data_dir())
+        except Exception:  # noqa: BLE001 - no list yet and NSE unreachable
+            listed, note = [], "The NIFTY 500 list could not be downloaded from NSE; try again when online"
+        pool = [s for s, _ in listed]
+        names.update({s: n for s, n in listed if n})
+    else:
+        pool = config.NIFTY50 if universe == "nifty50" else _mine(session)
     names.update(_names(session, pool + [benchmark]))
     if benchmark not in names:
         names[benchmark] = service.get_settings(session).get("benchmark_name") or benchmark
 
     empty = {"online": False, "as_of": None, "indexes": [], "global": [],
-             "movers": {"universe": universe, "gainers": [], "losers": []}}
+             "movers": {"universe": universe, "gainers": [], "losers": [], "note": note}}
     try:
         q = quotes(sorted(set(strip + global_syms + pool)), quote_fetcher)
     except Exception:
@@ -123,4 +132,4 @@ def build(session: Session, universe: str, window: int, *,
     gainers = [r for r in ranked if r["change_pct"] >= 0][:MOVERS]
     losers = [r for r in reversed(ranked) if r["change_pct"] < 0][:MOVERS]
     return {"online": True, "as_of": date.today().isoformat(), "indexes": indexes, "global": global_rows,
-            "movers": {"universe": universe, "gainers": gainers, "losers": losers}}
+            "movers": {"universe": universe, "gainers": gainers, "losers": losers, "note": note}}

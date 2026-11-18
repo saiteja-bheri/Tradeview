@@ -6,10 +6,10 @@ import { Seg } from "../ui";
 import { MarketsLoading, MarketsOffline, changeText, changeTone } from "./marketsShared";
 
 const UNIVERSES: { value: MoversUniverse; label: string }[] = [
-  { value: "nifty50", label: "NIFTY 50" }, { value: "mine", label: "MY STOCKS" },
+  { value: "nifty50", label: "NIFTY 50" }, { value: "nifty500", label: "NIFTY 500" }, { value: "mine", label: "MY STOCKS" },
 ];
 
-/** The day's biggest gainers and losers, from the NIFTY 50 or your own stocks. */
+/** The day's biggest gainers and losers, from the NIFTY 50, the NIFTY 500 or your own stocks. */
 export function MoversCard() {
   const { data, loading, error, retry, universe, setUniverse } = useMarkets();
   const openSymbol = useStore((s) => s.openSymbol);
@@ -39,6 +39,15 @@ export function MoversCard() {
   let body;
   if (!data) body = error ? <MarketsOffline error={error} retry={retry} loading={loading} /> : <MarketsLoading />;
   else if (!data.online) body = <MarketsOffline error={null} retry={retry} loading={loading} />;
+  else if (data.movers.universe !== universe)   // switched lists: the new one is still loading
+    body = (
+      <div className="px-3 py-3 text-[11px] text-dim">
+        Loading {UNIVERSES.find((u) => u.value === universe)?.label}…
+        {universe === "nifty500" && " The first load of 500 prices takes about 10 seconds."}
+      </div>
+    );
+  else if (data.movers.note)
+    body = <div className="px-3 py-3 text-[11px] text-amber">⚠ {data.movers.note}</div>;
   else
     body = (
       <>

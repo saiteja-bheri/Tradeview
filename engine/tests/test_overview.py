@@ -91,6 +91,52 @@ def test_offline_returns_online_false(market):
     assert data["online"] is False and data["global"] == [] and data["movers"]["gainers"] == []
 
 
+NIFTY500_CSV = "Company Name,Industry,Symbol,Series,ISIN Code\n" + "".join(
+    f"Company {i} Ltd.,Industry,CO{i:03d},EQ,INE{i:09d}\n" for i in range(150))
+
+
+def test_nifty500_movers_use_nse_list_with_company_names(market, monkeypatch):
+    from app.brokers import http
+    from app.market import indices
+
+    calls = []
+
+    def nse(url, headers=None, timeout=30):
+        calls.append(url)
+        return NIFTY500_CSV.encode()
+
+    monkeypatch.setattr(http, "get_bytes", nse)
+    client, _ = market
+    movers = client.get("/api/markets/overview", params={"universe": "nifty500"}).json()["movers"]
+    rows = movers["gainers"] + movers["losers"]
+    assert movers["universe"] == "nifty500" and len(movers["gainers"]) == len(movers["losers"]) == 5
+    assert all(r["symbol"].startswith("CO") and r["symbol"].endswith(".NS") for r in rows)
+    assert all(r["name"] == f"Company {int(r['symbol'][2:5])} Ltd." for r in rows)
+    assert calls == [indices.URLS["nifty500"]]
+
+    # the list is kept: offline later, the saved copy still works
+    def offline(url, headers=None, timeout=30):
+        raise OSError("no network")
+
+    monkeypatch.setattr(http, "get_bytes", offline)
+    overview._CACHE.clear()
+    again = client.get("/api/markets/overview", params={"universe": "nifty500"}).json()["movers"]
+    assert len(again["gainers"]) == 5
+
+
+def test_nifty500_without_any_list_says_so(market, monkeypatch):
+    from app.brokers import http
+
+    def offline(url, headers=None, timeout=30):
+        raise OSError("no network")
+
+    monkeypatch.setattr(http, "get_bytes", offline)
+    client, _ = market
+    data = client.get("/api/markets/overview", params={"universe": "nifty500"}).json()
+    assert data["online"] is True and data["movers"]["gainers"] == [] and "NIFTY 500" in data["movers"]["note"]
+    assert len(data["global"]) == 12                     # the rest of the page still works
+
+
 def test_bad_universe_or_window_is_refused(market):
     client, _ = market
     assert client.get("/api/markets/overview", params={"universe": "everything"}).status_code == 422

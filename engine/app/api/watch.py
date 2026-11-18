@@ -430,7 +430,7 @@ def _clean(obj):
 
 @router.get("/markets/overview")
 async def markets_overview(request: Request,
-                           universe: Literal["nifty50", "mine"] = "nifty50",
+                           universe: Literal["nifty50", "nifty500", "mine"] = "nifty50",
                            window: int = Query(63, description="Trading days: 21, 63 or 252")):
     """Index levels with their recent path, world indices and the day's movers
     (NIFTY 50 or your own stocks). Quotes are cached for five minutes; when Yahoo

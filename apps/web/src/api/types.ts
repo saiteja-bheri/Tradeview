@@ -637,12 +637,35 @@ export interface Mover {
   change_pct: number | null;
 }
 
-export type MoversUniverse = "nifty50" | "mine";
+export type MoversUniverse = "nifty50" | "nifty500" | "mine";
 
 export interface MarketsOverview {
   online: boolean;
   as_of: string | null;
   indexes: MarketIndex[];
   global: MarketIndex[];
-  movers: { universe: MoversUniverse; gainers: Mover[]; losers: Mover[] };
+  movers: { universe: MoversUniverse; gainers: Mover[]; losers: Mover[]; note?: string };
+}
+
+export interface FactorLoading { coef: number; se: number; t: number }
+
+export interface FactorFit {
+  alpha: { annual: number; daily: number; t: number };
+  loadings: { market: FactorLoading; size: FactorLoading; value: FactorLoading; momentum: FactorLoading };
+  r2: number;
+  adj_r2: number;
+}
+
+export interface FactorAnalysis {
+  release: string;
+  data_from: string | null;
+  data_to: string;
+  window: number;
+  observations: number;
+  portfolio: FactorFit | null;
+  holdings: (FactorFit & { symbol: string; name: string; weight: number })[];
+  excluded: string[];
+  citation: string;
+  source: string;
+  notes: string[];
 }

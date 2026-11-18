@@ -46,7 +46,8 @@ export const DEFAULT_LAYOUTS: Record<Exclude<PageId, "settings">, IJsonModel> = 
     type: "row",
     children: [
       tabs(28, tab("RISK", "risk"), tab("STRESS TEST", "stress")),
-      tabs(48, tab("PERFORMANCE", "performance"), tab("COVARIANCE", "covariance"), tab("OPTIMIZER", "optimizer")),
+      tabs(48, tab("PERFORMANCE", "performance"), tab("FACTORS", "factors"), tab("COVARIANCE", "covariance"),
+           tab("OPTIMIZER", "optimizer")),
       tabs(24, tab("AI INSIGHT", "insight")),
     ],
   }),
@@ -71,4 +72,6 @@ export const PAGES: PageDef[] = [
   { id: "settings", label: "Settings" },
 ];
 
-export const layoutKey = (page: PageId) => `qt.layout.${page}.v1`;
+// A page's version goes up when its default gains a pane, so saved layouts pick it up.
+const LAYOUT_VERSION: Partial<Record<PageId, number>> = { analytics: 2 };
+export const layoutKey = (page: PageId) => `qt.layout.${page}.v${LAYOUT_VERSION[page] ?? 1}`;

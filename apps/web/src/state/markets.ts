@@ -40,7 +40,7 @@ let seq = 0;
 
 /** One shared copy of the Markets page data for all its cards. */
 export const useMarketsStore = create<MarketsState>((set, get) => ({
-  universe: saved<MoversUniverse>("qt.markets.universe", ["nifty50", "mine"], "nifty50"),
+  universe: saved<MoversUniverse>("qt.markets.universe", ["nifty50", "nifty500", "mine"], "nifty50"),
   window: saved<MarketsWindow>("qt.markets.window", [21, 63, 252], 63),
   data: null,
   loading: false,

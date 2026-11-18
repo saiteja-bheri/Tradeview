@@ -155,3 +155,83 @@ async def stress_test(body: StressIn, request: Request):
             return run_stress(s, body, fetcher)
 
     return await asyncio.to_thread(run)
+
+
+# ---------------------------------------------------------------- four-factor analysis
+
+FACTOR_WINDOWS = (252, 756, 1260)        # 1, 3 and 5 years of trading days
+
+
+def run_factors(session: Session, window: int, fetcher=None) -> dict:
+    from app import config
+    from app.quant import factors
+
+    try:
+        release, f = factors.load(config.data_dir())
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=(
+            "The four-factor data from IIM Ahmedabad could not be downloaded and no copy is saved yet; "
+            f"try again when online ({str(exc)[:80]})")) from exc
+    end = f.index.max()
+    out = {"release": release, "data_from": None, "data_to": end.isoformat(), "window": window,
+           "observations": 0, "portfolio": None, "holdings": [], "excluded": [],
+           "citation": factors.CITATION, "source": factors.BASE,
+           "notes": [f"IIM Ahmedabad's factor data runs to {end:%d %b %Y} (release {release}); it is updated a "
+                     "few times a year, so the analysis covers the window up to that date, with today's weights."]}
+    trades, actions, _, _ = service.inr_ledger(session)
+    positions = build_positions(trades, actions)
+    held = sorted(s for s, p in positions.items() if p.quantity > EPS)
+    usable = [s for s in held if symbols.is_indian(s) or symbols.namespace(s) == "MF"]
+    out["excluded"] = [s for s in held if s not in usable]
+    if out["excluded"]:
+        out["notes"].append(f"Left out (the factors describe Indian shares): {', '.join(out['excluded'])}")
+    if not usable:
+        return out
+
+    window_days = f.tail(window + 1)
+    start = window_days.index.min() - timedelta(days=10)
+    for s in usable:
+        try:
+            history.refresh_symbol(session, s, start, fetcher=fetcher, with_actions=True)
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            out["notes"].append(f"Could not refresh {s}: {str(exc)[:80]}")
+    close, adj = history.load_prices(session, usable)
+    priced = [s for s in usable if s in adj.columns and adj[s].notna().any()]
+    if not priced:
+        return out
+    rets = adj[priced].pct_change(fill_method=None)
+    joined = f.join(rets, how="inner").dropna().tail(window)
+    if len(joined) < 60:
+        out["notes"].append(f"Only {len(joined)} days of the holdings' prices overlap the factor data; need 60")
+        return out
+    x = joined[["MF", "SMB", "HML", "WML"]].to_numpy()
+    rf = joined["RF"].to_numpy()
+    value = {s: positions[s].quantity * float(close[s].dropna().iloc[-1]) for s in priced}
+    total = sum(value.values())
+    names = {i.symbol: i.name for i in session.scalars(select(Instrument).where(Instrument.symbol.in_(priced)))}
+    for s in priced:
+        fit = factors.summarise(factors.regress(joined[s].to_numpy() - rf, x))
+        out["holdings"].append({"symbol": s, "name": names.get(s, ""), "weight": value[s] / total, **fit})
+    w = np.array([value[s] / total for s in priced])
+    out["portfolio"] = factors.summarise(factors.regress(joined[priced].to_numpy() @ w - rf, x))
+    out["observations"] = len(joined)
+    out["data_from"] = joined.index.min().isoformat()
+    if len(joined) < window:
+        out["notes"].append(f"Asked for {window} days; the holdings' prices overlap the factor data on {len(joined)}")
+    return out
+
+
+@router.get("/factors")
+async def factor_analysis(request: Request, window: int = 756):
+    """Carhart four-factor loadings (market, size, value, momentum) of the
+    portfolio and each holding, on IIM Ahmedabad's Indian factor data."""
+    if window not in FACTOR_WINDOWS:
+        raise HTTPException(status_code=422, detail="window must be 252, 756 or 1260 trading days")
+    fetcher = getattr(request.app.state, "price_fetcher", None)
+
+    def run() -> dict:
+        with request.app.state.sessionmaker() as s:
+            return _clean(run_factors(s, window, fetcher))
+
+    return await asyncio.to_thread(run)
