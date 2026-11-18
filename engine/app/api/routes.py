@@ -128,8 +128,9 @@ def _check_sale(session: Session, symbol: str, body: "TradeIn", skip_id: int | N
     """A recorded sale cannot exceed what the ledger held at that moment."""
     if body.side != "SELL":
         return
-    trades = [t for t in session.scalars(select(Trade).where(Trade.symbol == symbol)) if t.id != skip_id]
-    actions = session.scalars(select(CorporateAction).where(CorporateAction.symbol == symbol)).all()
+    # The whole ledger: shares can reach this symbol through a demerger or rename.
+    trades = [t for t in session.scalars(select(Trade)) if t.id != skip_id]
+    actions = session.scalars(select(CorporateAction)).all()
     held = held_on(trades, actions, symbol, body.traded_at.replace(tzinfo=None))
     if body.quantity > held + 1e-9:
         raise HTTPException(status_code=400, detail=(
@@ -535,9 +536,109 @@ def list_actions(symbol: str | None = None, session: Session = Depends(get_sessi
         query = query.where(CorporateAction.symbol == symbol)
     return [
         {"id": a.id, "symbol": a.symbol, "ex_date": a.ex_date.isoformat(), "kind": a.kind,
-         "value": a.value, "source": a.source, "review": a.review}
+         "value": a.value, "source": a.source, "review": a.review,
+         "target": a.target or None, "cost_share": a.cost_share or None}
         for a in session.scalars(query)
     ]
+
+
+class DemergerIn(BaseModel):
+    """One company becomes two listed companies. Shares of the new company arrive
+    at `new_shares_per_share` for each share held, and `cost_to_new_pct` of the
+    purchase cost moves to them (from the company's cost-of-acquisition notice)."""
+    symbol: str = Field(min_length=1, max_length=40)
+    ex_date: date
+    new_symbol: str = Field(min_length=1, max_length=40)
+    new_name: str | None = Field(default=None, max_length=120)
+    new_shares_per_share: float = Field(gt=0, le=1000)
+    cost_to_new_pct: float = Field(gt=0, lt=100)
+    continues_as: str | None = Field(default=None, max_length=40,
+                                     description="New symbol the original company trades under, if it changed")
+    continues_name: str | None = Field(default=None, max_length=120)
+
+    @field_validator("ex_date")
+    @classmethod
+    def _not_in_future(cls, v: date) -> date:
+        if v > date.today():
+            raise ValueError("Record a demerger on or after its ex-date")
+        return v
+
+
+@router.post("/corporate-actions/demerger", status_code=201)
+def add_demerger(body: DemergerIn, request: Request, session: Session = Depends(get_session)):
+    parent = _ledger_symbol(body.symbol, session)
+    child = _ledger_symbol(body.new_symbol, session)
+    renamed = _ledger_symbol(body.continues_as, session) if body.continues_as else None
+    if child == parent or renamed in (parent, child):
+        raise HTTPException(status_code=400, detail="The new company and the continuing symbol must differ from the original")
+    clash = session.scalar(select(CorporateAction).where(
+        CorporateAction.symbol == parent, CorporateAction.ex_date == body.ex_date,
+        CorporateAction.kind.in_(("demerger", "rename"))))
+    if clash:
+        raise HTTPException(status_code=409, detail=f"A {clash.kind} of {parent} on {body.ex_date} is already recorded")
+    session.add(CorporateAction(symbol=parent, ex_date=body.ex_date, kind="demerger", value=body.new_shares_per_share,
+                                target=child, cost_share=body.cost_to_new_pct / 100, source="manual"))
+    _remember_instrument(session, child, body.new_name)
+    if renamed:
+        session.add(CorporateAction(symbol=parent, ex_date=body.ex_date, kind="rename", value=1.0,
+                                    target=renamed, source="manual"))
+        _remember_instrument(session, renamed, body.continues_name)
+    session.commit()
+    _poke(request)
+    return {"symbol": parent, "new_symbol": child, "continues_as": renamed}
+
+
+class ResetIn(BaseModel):
+    confirm: str = Field(max_length=20, description='Must be exactly "RESET"')
+    credentials: bool = Field(default=False, description="Also remove saved API keys and broker logins")
+
+
+@router.post("/reset")
+async def reset_everything(body: ResetIn, request: Request):
+    """Empties the whole ledger database: trades, corporate actions, holdings
+    records, wealth items, bonds, watchlist, history, news, memos, price cache and
+    settings. Saved API keys and broker logins (in the system keychain) are
+    removed only when `credentials` is true. Nothing is sent to any broker."""
+    if body.confirm != "RESET":
+        raise HTTPException(status_code=400, detail='Type RESET to confirm; nothing was changed')
+    from app.db.models import Base
+
+    def wipe() -> None:
+        with request.app.state.sessionmaker() as s:
+            for table in reversed(Base.metadata.sorted_tables):
+                s.execute(table.delete())
+            s.commit()
+
+    await asyncio.to_thread(wipe)
+    if body.credentials:
+        state = request.app.state
+        for store in (state.token_store, state.gemini_store):
+            await asyncio.to_thread(store.clear)
+        for source in state.sources.values():
+            await asyncio.to_thread(source.clear)
+    await restart_feed(request.app)
+    _poke(request)
+    return {"reset": True, "credentials_removed": body.credentials}
+
+
+@router.delete("/corporate-actions/{action_id}")
+def remove_action(action_id: int, request: Request, session: Session = Depends(get_session)):
+    """Removes an action entered by hand (a demerger takes its rename with it).
+    Actions from Yahoo or BSE come back on the next refresh, so they stay."""
+    action = session.get(CorporateAction, action_id)
+    if action is None:
+        raise HTTPException(status_code=404, detail="No such corporate action")
+    if action.source != "manual":
+        raise HTTPException(status_code=400, detail=f"Only actions entered by hand can be removed; this one is from {action.source}")
+    if action.kind == "demerger":
+        for r in session.scalars(select(CorporateAction).where(
+                CorporateAction.symbol == action.symbol, CorporateAction.ex_date == action.ex_date,
+                CorporateAction.kind == "rename", CorporateAction.source == "manual")):
+            session.delete(r)
+    session.delete(action)
+    session.commit()
+    _poke(request)
+    return {"deleted": action_id}
 
 
 @router.post("/corporate-actions", status_code=201)

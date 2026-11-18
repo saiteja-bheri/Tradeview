@@ -1,4 +1,4 @@
-import type { MarketsOverview, MoversUniverse, OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
+import type { DemergerInput, MarketsOverview, MoversUniverse, OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
 
 declare global {
   interface Window {
@@ -83,6 +83,12 @@ export const api = {
     return { blob: await res.blob(), name: `quant-terminal-ledger-${stamp}.csv` };
   },
   actions: () => call<CorporateAction[]>("/api/corporate-actions"),
+  addAction: (a: { symbol: string; ex_date: string; kind: "split" | "bonus" | "dividend"; value: number }) =>
+    json<{ id: number }>("POST", "/api/corporate-actions", a),
+  addDemerger: (d: DemergerInput) => json<{ new_symbol: string }>("POST", "/api/corporate-actions/demerger", d),
+  removeAction: (id: number) => call<{ deleted: number }>(`/api/corporate-actions/${id}`, { method: "DELETE" }),
+  resetEverything: (credentials: boolean) =>
+    json<{ reset: boolean; credentials_removed: boolean }>("POST", "/api/reset", { confirm: "RESET", credentials }),
   refreshMarket: () => call<{ warnings: string[] }>("/api/market/refresh", { method: "POST" }),
   connections: () => call<ConnectionsState>("/api/connections"),
   setPriceSource: (source: PriceSource) => json<ConnectionsState>("PUT", "/api/connections/price-source", { source }),

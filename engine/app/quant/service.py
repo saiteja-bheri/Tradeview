@@ -247,6 +247,9 @@ def refresh_market(session: Session, benchmark: str, fetcher=None, force: bool =
     warnings: list[str] = []
     start = history_start(session, lookback_days)
     traded = list(session.scalars(select(Trade.symbol).distinct()))
+    # Stocks that arrived through a demerger or rename have no trades of their own.
+    traded += [s for s in session.scalars(select(CorporateAction.target).where(
+        CorporateAction.kind.in_(("demerger", "rename"))).distinct()) if s and s not in traded]
     tracked = list(session.scalars(select(Watch.symbol).where(Watch.starred | Watch.watched)))
     # FX first, so international prices and costs convert with fresh rates. The
     # benchmark is included: a foreign index is compared in rupees like the holdings.

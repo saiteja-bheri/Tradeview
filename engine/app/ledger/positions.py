@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
 EPS = 1e-9
@@ -42,12 +42,30 @@ def _day(value: date | datetime) -> date:
     return value.date() if isinstance(value, datetime) else value
 
 
+# Same-day order of actions: splits, bonuses and dividends first (as before),
+# then a demerger, then the parent's rename, so the demerger works on the old symbol.
+_ACTION_ORDER = {"demerger": 1, "rename": 2}
+
+
+def _action_key(a: Any) -> datetime:
+    return datetime.min + timedelta(microseconds=_ACTION_ORDER.get(a.kind, 0))
+
+
+def _transfer(held: dict[str, float], ev: Any) -> None:
+    """Applies a demerger or rename to a {symbol: quantity} map."""
+    q = held.get(ev.symbol, 0.0)
+    if ev.kind == "demerger" and ev.value > 0:
+        held[ev.target] = held.get(ev.target, 0.0) + q * ev.value
+    elif ev.kind == "rename":
+        held[ev.target] = held.get(ev.target, 0.0) + held.pop(ev.symbol, 0.0)
+
+
 def _events(trades: Iterable[Any], actions: Iterable[Any]) -> list[tuple]:
     events: list[tuple] = []
     for a in actions:
         if getattr(a, "review", "") == "skip":
             continue
-        events.append((_day(a.ex_date), 0, datetime.min, "action", a))
+        events.append((_day(a.ex_date), 0, _action_key(a), "action", a))
     for t in trades:
         events.append((_day(t.traded_at), 1, t.traded_at, "trade", t))
     events.sort(key=lambda e: e[:3])
@@ -55,21 +73,25 @@ def _events(trades: Iterable[Any], actions: Iterable[Any]) -> list[tuple]:
 
 
 def held_on(trades: Iterable[Any], actions: Iterable[Any], symbol: str, when: datetime) -> float:
-    """Quantity of `symbol` held just before a trade at `when`, splits and
-    bonuses applied (same-day actions first, same-day earlier trades counted)."""
-    qty = 0.0
-    for day, _, at, kind, ev in _events([t for t in trades if t.symbol == symbol],
-                                        [a for a in actions if a.symbol == symbol]):
+    """Quantity of `symbol` held just before a trade at `when`, splits, bonuses,
+    demergers and renames applied (same-day actions first, same-day earlier
+    trades counted). Shares that arrived through a demerger or rename count too,
+    so the whole ledger is replayed, not only this symbol's rows."""
+    held: dict[str, float] = {}
+    for day, _, at, kind, ev in _events(trades, actions):
         if kind == "trade" and (at >= when):
             break
         if kind == "action" and day > _day(when):
             break
         if kind == "action":
-            if ev.kind in ("split", "bonus") and ev.value > 0:
-                qty *= ev.value
+            if ev.kind in ("split", "bonus") and ev.value > 0 and ev.symbol in held:
+                held[ev.symbol] *= ev.value
+            else:
+                _transfer(held, ev)
         else:
-            qty = qty + ev.quantity if ev.side == "BUY" else max(qty - ev.quantity, 0.0)
-    return qty
+            q = held.get(ev.symbol, 0.0)
+            held[ev.symbol] = q + ev.quantity if ev.side == "BUY" else max(q - ev.quantity, 0.0)
+    return held.get(symbol, 0.0)
 
 
 def clip_oversells(trades: Iterable[Any], actions: Iterable[Any]) -> tuple[list[Any], list[str]]:
@@ -84,6 +106,8 @@ def clip_oversells(trades: Iterable[Any], actions: Iterable[Any]) -> tuple[list[
         if kind == "action":
             if ev.kind in ("split", "bonus") and ev.value > 0 and ev.symbol in held:
                 held[ev.symbol] *= ev.value
+            else:
+                _transfer(held, ev)
             continue
         q = held.get(ev.symbol, 0.0)
         if ev.side == "BUY":
@@ -136,7 +160,7 @@ def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, 
     for a in actions:
         if getattr(a, "review", "") == "skip":
             continue  # the uploaded quantities already include this split or bonus
-        events.append((_day(a.ex_date), 0, datetime.min, "action", a))
+        events.append((_day(a.ex_date), 0, _action_key(a), "action", a))
     for t in trades:
         events.append((_day(t.traded_at), 1, t.traded_at, "trade", t))
     events.sort(key=lambda e: e[:3])
@@ -155,6 +179,24 @@ def build_positions(trades: Iterable[Any], actions: Iterable[Any]) -> dict[str, 
                 pos.dividends += cash
                 if cash > EPS:
                     pos.income.append((_day(ev.ex_date), cash))
+            elif ev.kind == "demerger" and ev.value > 0:
+                # Each open lot gives `value` new shares per share held, carrying
+                # `cost_share` of that lot's cost; the parent keeps the rest.
+                share = float(getattr(ev, "cost_share", 0.0) or 0.0)
+                child = book.setdefault(ev.target, Position(ev.target))
+                for lot in pos.lots:
+                    child.lots.append([lot[0] * ev.value, lot[1] * share / ev.value])
+                    lot[1] *= 1.0 - share
+            elif ev.kind == "rename":
+                # The same holding under a new symbol: lots (in FIFO order), realised
+                # P&L and income move over, ahead of anything already under the new symbol.
+                new = book.setdefault(ev.target, Position(ev.target))
+                new.lots = deque(list(pos.lots) + list(new.lots))
+                new.realized_pnl += pos.realized_pnl
+                new.dividends += pos.dividends
+                new.income = pos.income + new.income
+                new.warnings = pos.warnings + new.warnings
+                del book[ev.symbol]
             continue
         if ev.side == "BUY":
             pos.lots.append([float(ev.quantity), float(ev.price)])

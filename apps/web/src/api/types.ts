@@ -130,10 +130,24 @@ export interface CorporateAction {
   id: number;
   symbol: string;
   ex_date: string;
-  kind: "split" | "bonus" | "dividend";
+  kind: "split" | "bonus" | "dividend" | "demerger" | "rename";
   value: number;
   source: string;
   review?: "" | "pending" | "apply" | "skip";
+  /** demerger: the new company; rename: the symbol the holding continues under. */
+  target?: string | null;
+  /** demerger: fraction of the purchase cost that moved to the new company. */
+  cost_share?: number | null;
+}
+
+export interface DemergerInput {
+  symbol: string;
+  ex_date: string;
+  new_symbol: string;
+  new_name?: string;
+  new_shares_per_share: number;
+  cost_to_new_pct: number;
+  continues_as?: string;
 }
 
 export interface ImportResult {

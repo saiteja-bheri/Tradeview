@@ -188,6 +188,57 @@ export function DataSection() {
   );
 }
 
+/** Wipes the app back to a fresh install: ledger, settings, caches and layouts. */
+export function ResetCard() {
+  const [typed, setTyped] = useState("");
+  const [keys, setKeys] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready = typed === "RESET";
+
+  const reset = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.resetEverything(keys);
+      try {
+        Object.keys(localStorage).filter((k) => k.startsWith("qt.")).forEach((k) => localStorage.removeItem(k));
+      } catch { /* storage unavailable: layouts just stay */ }
+      window.location.reload();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-down/50 bg-panel p-4">
+      <h2 className="text-[14px] font-semibold text-down">Reset everything</h2>
+      <p className="mt-0.5 text-[11.5px] text-dim">
+        Deletes every trade, corporate action, wealth item, bond, watchlist entry, AI memo and setting, the
+        price cache and your page layouts, so the app starts as if freshly installed. This cannot be undone:
+        export your ledger first if you may want it back.
+      </p>
+      <div className="mt-3 space-y-2">
+        <label className="flex items-center gap-2 text-[11.5px]">
+          <input type="checkbox" checked={keys} onChange={(e) => setKeys(e.target.checked)} className="accent-[var(--color-down)]" />
+          Also remove saved API keys and broker logins (Upstox, Zerodha, Groww, Gemini)
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Type RESET" aria-label="Type RESET to confirm"
+                 spellCheck={false} autoComplete="off"
+                 className="w-36 rounded-md border border-line bg-bg px-2 py-1.5 font-mono outline-none focus:border-down" />
+          <button onClick={reset} disabled={!ready || busy}
+                  className="rounded-md border border-down px-3 py-1.5 text-down hover:bg-down hover:text-black disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-down">
+            {busy ? "RESETTING…" : "RESET EVERYTHING"}
+          </button>
+        </div>
+        {error && <div role="alert" className="text-down">{error}</div>}
+      </div>
+    </section>
+  );
+}
+
 export function AboutSection() {
   const status = useStore((s) => s.status);
   const feed = useStore((s) => s.live?.status);

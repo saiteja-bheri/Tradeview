@@ -71,6 +71,11 @@ class CorporateAction(Base):
     # but waits for the user to confirm, "apply" confirmed, "skip" = the uploaded
     # quantities already include it, so it must not be applied again.
     review: Mapped[str] = mapped_column(String, default="")
+    # Demerger and rename only. demerger: `target` is the new company, `value` its
+    # shares per share held, `cost_share` the fraction of cost that moves to it.
+    # rename: `target` is the symbol the same holding continues under.
+    target: Mapped[str] = mapped_column(String, default="")
+    cost_share: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class PriceBar(Base):
@@ -185,7 +190,8 @@ _ADDED_COLUMNS = {
     "instruments": {"isin": "VARCHAR NOT NULL DEFAULT ''", "asset_class": "VARCHAR NOT NULL DEFAULT ''",
                     "currency": "VARCHAR NOT NULL DEFAULT ''"},
     "trades": {"imported_at": "DATETIME"},
-    "corporate_actions": {"review": "VARCHAR NOT NULL DEFAULT ''"},
+    "corporate_actions": {"review": "VARCHAR NOT NULL DEFAULT ''", "target": "VARCHAR NOT NULL DEFAULT ''",
+                          "cost_share": "FLOAT NOT NULL DEFAULT 0"},
     "watchlist": {"watched": "BOOLEAN NOT NULL DEFAULT 0"},
     "news": {"source": "VARCHAR NOT NULL DEFAULT 'yahoo'"},
 }

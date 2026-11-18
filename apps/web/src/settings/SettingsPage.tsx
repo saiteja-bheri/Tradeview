@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { type SectionId, useStore } from "../state/store";
-import { AboutSection, AiSection, ConnectionsSection, DataSection, DisplaySection, NewsSection, RiskSection } from "./sections";
+import { AboutSection, AiSection, ConnectionsSection, DataSection, DisplaySection, NewsSection, ResetCard, RiskSection } from "./sections";
 
 export const SECTIONS: { id: SectionId; label: string; view: () => ReactNode }[] = [
   { id: "risk", label: "Risk", view: RiskSection },
@@ -8,7 +8,7 @@ export const SECTIONS: { id: SectionId; label: string; view: () => ReactNode }[]
   { id: "display", label: "Display", view: DisplaySection },
   { id: "ai", label: "AI insight", view: AiSection },
   { id: "news", label: "News", view: NewsSection },
-  { id: "data", label: "Data", view: DataSection },
+  { id: "data", label: "Data", view: () => <><DataSection /><ResetCard /></> },
   { id: "about", label: "About", view: AboutSection },
 ];
 
