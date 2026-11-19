@@ -101,3 +101,113 @@ def summarise(fit: dict) -> dict:
         "loadings": {NAMES[c]: item(i + 1) for i, c in enumerate(["MF", "SMB", "HML", "WML"])},
         "r2": float(fit["r2"]), "adj_r2": float(fit["adj_r2"]),
     }
+
+
+# ---------------------------------------------------------------- your own factor file
+#
+# For a period IIM Ahmedabad's release does not cover yet, or for factors built
+# another way, a daily file can be uploaded: a date column plus market (excess),
+# size, value, momentum and, ideally, the risk-free rate. Percent or decimal
+# returns are both accepted; the units are worked out from the numbers.
+
+UPLOAD_DATA, UPLOAD_META = "user_factors.csv", "user_factors.json"
+MIN_ROWS = 60
+ALIASES = {
+    "MF": {"mf", "mkt", "mktrf", "market", "rmrf", "marketexcess", "excessmarket", "mkt-rf", "erm"},
+    "SMB": {"smb", "size"},
+    "HML": {"hml", "value"},
+    "WML": {"wml", "mom", "umd", "momentum", "pr1yr", "wml(momentum)"},
+    "RF": {"rf", "riskfree", "rfr", "tbill", "riskfreerate"},
+}
+
+
+def _key(name: str) -> str:
+    return re.sub(r"[\s_\-.%()]", "", str(name).strip().lower())
+
+
+def _dates(col: pd.Series) -> pd.Series:
+    text = col.astype(str).str.strip()
+    if text.str.fullmatch(r"\d{8}").all():                         # 20260105, as in Ken French's files
+        return pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    if text.str.match(r"\d{4}-").all():
+        return pd.to_datetime(text, errors="coerce", format="mixed")
+    return pd.to_datetime(text, errors="coerce", dayfirst=True, format="mixed")   # Indian style: 05-01-2026
+
+
+def parse_upload(raw: bytes, filename: str = "") -> tuple[pd.DataFrame, dict]:
+    """(daily factors as decimals, info) from an uploaded CSV or Excel file.
+    Raises ValueError with a reason the user can act on."""
+    try:
+        if filename.lower().endswith((".xlsx", ".xls")):
+            df = pd.read_excel(io.BytesIO(raw))
+        else:
+            df = pd.read_csv(io.BytesIO(raw), sep=None, engine="python", na_values=["NA", "", "-"])
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"Could not read the file as a table ({str(exc)[:60]})") from exc
+    if df.shape[1] < 2:
+        raise ValueError("Could not read the file as a table: expected a Date column and the factor columns")
+    keys = {_key(c): c for c in df.columns}
+    found = {}
+    for col, names in ALIASES.items():
+        hit = next((keys[_key(n)] for n in names if _key(n) in keys), None)
+        if hit is not None:
+            found[col] = hit
+    missing = [c for c in ("MF", "SMB", "HML", "WML") if c not in found]
+    if not found:
+        raise ValueError("Could not read any factor columns. Expected Date, MF (or Mkt-RF), SMB, HML, "
+                         "WML (or MOM/UMD) and RF")
+    if missing:
+        raise ValueError(f"Missing column(s) {', '.join(missing)}. Expected Date, MF (or Mkt-RF), SMB, HML, "
+                         "WML (or MOM/UMD) and RF")
+    date_col = keys.get("date", df.columns[0])
+    out = pd.DataFrame({c: pd.to_numeric(df[found[c]], errors="coerce") for c in found})
+    out.index = _dates(df[date_col])
+    out = out[out.index.notna()].dropna(subset=["MF", "SMB", "HML", "WML"])
+    warnings = []
+    if "RF" not in out:
+        out["RF"] = 0.0
+        warnings.append("No RF (risk-free) column: assumed zero, so alpha includes the T-bill rate")
+    out["RF"] = out["RF"].fillna(0.0)
+    out = out[~out.index.duplicated(keep="last")].sort_index()[COLUMNS]
+    if len(out) < MIN_ROWS:
+        raise ValueError(f"Only {len(out)} usable rows; need at least {MIN_ROWS} trading days")
+    gap = pd.Series(out.index).diff().dt.days.median()
+    if gap > 5:
+        raise ValueError(f"The rows are about {gap:.0f} days apart; the analysis needs daily factor returns")
+    units = "percent" if out[["MF", "SMB", "HML", "WML"]].abs().median().median() > 0.05 else "decimal"
+    if units == "percent":
+        out = out / 100.0
+    if (out[["MF", "SMB", "HML", "WML"]].abs() > 0.5).any().any():
+        raise ValueError("Some daily factor returns are above 50%; check the units and the columns")
+    out.index = out.index.date
+    out.index.name = "Date"
+    info = {"name": Path(filename).name or "factors.csv", "rows": len(out), "from": str(out.index[0]),
+            "to": str(out.index[-1]), "units": units, "warnings": warnings,
+            "uploaded": datetime.now().isoformat(timespec="seconds")}
+    return out, info
+
+
+def save_upload(cache_dir: Path, raw: bytes, filename: str) -> dict:
+    """Check and keep the user's factor file (as decimals) in the data folder."""
+    out, info = parse_upload(raw, filename)
+    folder = Path(cache_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    out.to_csv(folder / UPLOAD_DATA)
+    (folder / UPLOAD_META).write_text(json.dumps(info))
+    return info
+
+
+def load_upload(cache_dir: Path) -> tuple[dict, pd.DataFrame] | None:
+    folder = Path(cache_dir)
+    try:
+        meta = json.loads((folder / UPLOAD_META).read_text())
+        df = pd.read_csv(folder / UPLOAD_DATA, parse_dates=["Date"])
+    except (OSError, ValueError):
+        return None
+    df["Date"] = df["Date"].dt.date
+    return meta, df.set_index("Date")[COLUMNS]
+
+
+def delete_upload(cache_dir: Path) -> None:
+    for name in (UPLOAD_DATA, UPLOAD_META):
+        (Path(cache_dir) / name).unlink(missing_ok=True)

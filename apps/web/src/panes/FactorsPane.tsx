@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { FactorAnalysis, FactorFit, FactorLoading } from "../api/types";
+import type { FactorAnalysis, FactorFit, FactorLoading, FactorSource, FactorUpload } from "../api/types";
 import { num, ticker } from "../format";
 import { useStore } from "../state/store";
 import { Empty, Seg } from "../ui";
@@ -8,6 +8,10 @@ import { Empty, Seg } from "../ui";
 type Window = 252 | 756 | 1260;
 type Key = keyof FactorFit["loadings"];
 const WINDOWS: { value: Window; label: string }[] = [{ value: 252, label: "1Y" }, { value: 756, label: "3Y" }, { value: 1260, label: "5Y" }];
+const SOURCES: { value: FactorSource; label: string }[] = [
+  { value: "iima", label: "IIM A" }, { value: "combined", label: "IIM A + MY FILE" }, { value: "upload", label: "MY FILE" },
+];
+const FORMAT = "Daily CSV or Excel: Date, MF (or Mkt-RF), SMB, HML, WML (or MOM/UMD), RF — percent or decimal returns";
 const SIG = 2;   // |t| at or above this counts as a clear tilt (about 95% confidence)
 
 const FACTORS: { key: Key; label: string; what: string }[] = [
@@ -43,6 +47,10 @@ export function FactorsPane() {
   const [data, setData] = useState<FactorAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [source, setSource] = useState<FactorSource>("iima");
+  const [upload, setUpload] = useState<FactorUpload | null>(null);
+  const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const ledgerKey = useStore((s) => s.portfolio?.holdings.map((h) => `${h.symbol}:${h.quantity}`).join(",") ?? "");
   const seq = useRef(0);
 
@@ -50,25 +58,73 @@ export function FactorsPane() {
     const mine = ++seq.current;
     setLoading(true);
     try {
-      const d = await api.factors(window);
+      const d = await api.factors(window, source);
       if (mine === seq.current) { setData(d); setError(null); }
     } catch (e) {
       if (mine === seq.current) setError((e as Error).message);
     } finally {
       if (mine === seq.current) setLoading(false);
     }
-  }, [window]);
+  }, [window, source]);
 
   useEffect(() => { load(); }, [load, ledgerKey]);
+  useEffect(() => { api.factorUpload().then(setUpload).catch(() => {}); }, []);
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadMsg("Checking the file…");
+    try {
+      const info = await api.uploadFactors(file);
+      setUpload(info);
+      setUploadMsg(`Loaded ${info.rows} days (${info.units}). ${info.warnings.join(" ")}`.trim());
+      setSource("combined");
+    } catch (e) {
+      setUploadMsg((e as Error).message);
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const removeFile = async () => {
+    await api.removeFactorUpload().catch(() => {});
+    setUpload(null);
+    setUploadMsg(null);
+    setSource("iima");
+  };
 
   const head = (
     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
       <div className="text-[10.5px] tracking-widest text-dim">FOUR-FACTOR ANALYSIS · CARHART · INDIA</div>
-      <Seg<Window> label="WINDOW" value={window} options={WINDOWS} onChange={setWindow} />
+      <div className="flex flex-wrap items-center gap-2">
+        {upload && <Seg<FactorSource> label="DATA" value={source} options={SOURCES} onChange={setSource} />}
+        <Seg<Window> label="WINDOW" value={window} options={WINDOWS} onChange={setWindow} />
+      </div>
     </div>
   );
 
-  if (error) return <div className="flex h-full flex-col">{head}<Empty title="Factor analysis unavailable" hint={error} /></div>;
+  const uploadBar = (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2 text-[10.5px] text-dim" style={{ fontFamily: "var(--font-sans)" }}>
+      <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls" className="hidden"
+             aria-label="Factor file" onChange={(e) => onFile(e.target.files?.[0])} />
+      <button type="button" onClick={() => fileRef.current?.click()}
+              className="rounded-sm border border-line px-2 py-1 font-mono text-[10.5px] text-ink hover:bg-raise">
+        {upload ? "REPLACE FACTOR FILE" : "UPLOAD FACTOR FILE"}
+      </button>
+      {upload ? (
+        <>
+          <span>
+            <span className="text-ink">{upload.name}</span> · {upload.rows} days · {upload.from} → {upload.to}
+          </span>
+          <button type="button" onClick={removeFile} className="underline hover:text-ink">remove</button>
+        </>
+      ) : (
+        <span>Have newer or your own factor data? {FORMAT}.</span>
+      )}
+      {uploadMsg && <span className="basis-full text-amber">{uploadMsg}</span>}
+    </div>
+  );
+
+  if (error) return <div className="flex h-full flex-col">{head}<div className="min-h-0 flex-1"><Empty title="Factor analysis unavailable" hint={error} /></div>{uploadBar}</div>;
   if (!data) return <div className="flex h-full flex-col">{head}<Empty title="Loading factor data…" hint="The first run downloads IIM Ahmedabad's factor file and longer price history." /></div>;
 
   const p = data.portfolio;
@@ -147,15 +203,18 @@ export function FactorsPane() {
         <div className="space-y-1 border-t border-line px-3 py-2 text-[10.5px] text-dim" style={{ fontFamily: "var(--font-sans)" }}>
           {data.notes.map((n, i) => <div key={i} className={i === 0 ? "text-amber" : ""}>{i === 0 ? "⚠ " : ""}{n}</div>)}
           <div>Coloured loadings are clear tilts (|t| ≥ 2, about 95% confidence); grey ones could be chance.</div>
-          <div>
-            Data:{" "}
-            <a href={data.source} target="_blank" rel="noreferrer noopener" className="underline hover:text-ink">
-              IIM Ahmedabad Fama-French and Momentum factors for India
-            </a>
-            , release {data.release}. {data.citation}
-          </div>
+          {data.source && (
+            <div>
+              Data:{" "}
+              <a href={data.source} target="_blank" rel="noreferrer noopener" className="underline hover:text-ink">
+                IIM Ahmedabad Fama-French and Momentum factors for India
+              </a>
+              , release {data.release}. {data.citation}
+            </div>
+          )}
         </div>
       </div>
+      {uploadBar}
     </div>
   );
 }

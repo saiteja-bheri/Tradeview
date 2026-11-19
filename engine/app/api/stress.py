@@ -6,12 +6,12 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.routes import require_token
+from app.api.routes import read_upload, require_token
 from app.db.models import Instrument
 from app.ledger.positions import EPS, build_positions
 from app.market import fx, history, symbols
@@ -160,24 +160,56 @@ async def stress_test(body: StressIn, request: Request):
 # ---------------------------------------------------------------- four-factor analysis
 
 FACTOR_WINDOWS = (252, 756, 1260)        # 1, 3 and 5 years of trading days
+FACTOR_SOURCES = ("iima", "upload", "combined")
 
 
-def run_factors(session: Session, window: int, fetcher=None) -> dict:
+def _factor_frame(source: str) -> tuple[pd.DataFrame, dict]:
+    """The daily factors for the chosen source, and the header fields that describe them."""
     from app import config
     from app.quant import factors
 
+    folder = config.data_dir()
+    own = factors.load_upload(folder)
+    if source != "iima" and own is None:
+        raise HTTPException(status_code=404, detail="No factor file uploaded yet; upload one or use IIM Ahmedabad's data")
+    if source == "upload":
+        meta, f = own
+        head = {"release": "your file", "citation": "", "source": None,
+                "notes": [f"Using your factor file {meta['name']} ({meta['from']} to {meta['to']}); the results are "
+                          "only as good as how those factors were built.", *meta.get("warnings", [])]}
+        return f, head
     try:
-        release, f = factors.load(config.data_dir())
+        release, f = factors.load(folder)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=(
             "The four-factor data from IIM Ahmedabad could not be downloaded and no copy is saved yet; "
-            f"try again when online ({str(exc)[:80]})")) from exc
+            f"try again when online, or upload your own factor file ({str(exc)[:80]})")) from exc
     end = f.index.max()
-    out = {"release": release, "data_from": None, "data_to": end.isoformat(), "window": window,
-           "observations": 0, "portfolio": None, "holdings": [], "excluded": [],
-           "citation": factors.CITATION, "source": factors.BASE,
-           "notes": [f"IIM Ahmedabad's factor data runs to {end:%d %b %Y} (release {release}); it is updated a "
-                     "few times a year, so the analysis covers the window up to that date, with today's weights."]}
+    head = {"release": release, "citation": factors.CITATION, "source": factors.BASE}
+    if source == "combined":
+        meta, mine = own
+        extra = mine[mine.index > end]
+        f = pd.concat([f, extra])
+        added = (f"then {len(extra)} days from your file {meta['name']} to {f.index.max():%d %b %Y}." if len(extra)
+                 else f"your file {meta['name']} has no days after that, so it adds nothing here.")
+        head["notes"] = [f"IIM Ahmedabad's factors (release {release}) to {end:%d %b %Y}; {added}",
+                         *meta.get("warnings", [])]
+    else:
+        head["notes"] = [f"IIM Ahmedabad's factor data runs to {end:%d %b %Y} (release {release}); it is updated a "
+                         "few times a year, so the analysis covers the window up to that date, with today's weights. "
+                         "To cover later days, upload your own factor file."]
+    return f, head
+
+
+def run_factors(session: Session, window: int, fetcher=None, source: str = "iima") -> dict:
+    from app import config
+    from app.quant import factors
+
+    f, head = _factor_frame(source)
+    own = factors.load_upload(config.data_dir())
+    out = {"data_from": None, "data_to": f.index.max().isoformat(), "window": window, "observations": 0,
+           "portfolio": None, "holdings": [], "excluded": [], "source_id": source,
+           "upload": own[0] if own else None, **head}
     trades, actions, _, _ = service.inr_ledger(session)
     positions = build_positions(trades, actions)
     held = sorted(s for s, p in positions.items() if p.quantity > EPS)
@@ -223,15 +255,50 @@ def run_factors(session: Session, window: int, fetcher=None) -> dict:
 
 
 @router.get("/factors")
-async def factor_analysis(request: Request, window: int = 756):
+async def factor_analysis(request: Request, window: int = 756, source: str = "iima"):
     """Carhart four-factor loadings (market, size, value, momentum) of the
     portfolio and each holding, on IIM Ahmedabad's Indian factor data."""
     if window not in FACTOR_WINDOWS:
         raise HTTPException(status_code=422, detail="window must be 252, 756 or 1260 trading days")
+    if source not in FACTOR_SOURCES:
+        raise HTTPException(status_code=422, detail="source must be iima, upload or combined")
     fetcher = getattr(request.app.state, "price_fetcher", None)
 
     def run() -> dict:
         with request.app.state.sessionmaker() as s:
-            return _clean(run_factors(s, window, fetcher))
+            return _clean(run_factors(s, window, fetcher, source))
 
     return await asyncio.to_thread(run)
+
+
+@router.get("/factors/upload")
+def factor_upload_info():
+    """What the uploaded factor file covers, or null when there is none."""
+    from app import config
+    from app.quant import factors
+
+    own = factors.load_upload(config.data_dir())
+    return own[0] if own else None
+
+
+@router.post("/factors/upload")
+async def upload_factors(file: UploadFile = File(...)):
+    """Keep a daily factor file (CSV or Excel: Date, MF/Mkt-RF, SMB, HML, WML/MOM, RF)
+    for periods or factor sets IIM Ahmedabad's release does not cover."""
+    from app import config
+    from app.quant import factors
+
+    raw = await read_upload(file)
+    try:
+        return factors.save_upload(config.data_dir(), raw, file.filename or "factors.csv")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/factors/upload")
+def remove_factor_upload():
+    from app import config
+    from app.quant import factors
+
+    factors.delete_upload(config.data_dir())
+    return {"removed": True}

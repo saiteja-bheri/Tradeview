@@ -118,3 +118,78 @@ def test_factor_endpoint_without_holdings(client, monkeypatch):
     monkeypatch.setattr(factors, "load", lambda cache_dir: ("2025-12", factor_frame(pd.bdate_range(end="2025-12-31", periods=300).date)))
     d = client.get("/api/factors").json()
     assert d["holdings"] == [] and d["portfolio"] is None
+
+
+# ---------------------------------------------------------------- your own factor file
+
+def own_csv(frame, header="Date,Mkt-RF,SMB,HML,MOM,RF", pct=True, date_fmt="%Y-%m-%d"):
+    scale = 100 if pct else 1
+    lines = [header]
+    for d, r in frame.iterrows():
+        lines.append(f"{pd.Timestamp(d).strftime(date_fmt)},{r.MF * scale},{r.SMB * scale},{r.HML * scale},{r.WML * scale},{r.RF * scale}")
+    return "\n".join(lines) + "\n"
+
+
+def test_own_file_accepts_common_column_names_and_units():
+    f = factor_frame(pd.bdate_range("2026-01-01", periods=120).date)
+    for text in (own_csv(f), own_csv(f, pct=False), own_csv(f, header="date,MKT,size,value,UMD,rf", date_fmt="%d-%m-%Y")):
+        out, info = factors.parse_upload(text.encode(), "f.csv")
+        assert list(out.columns) == factors.COLUMNS and len(out) == 120
+        assert out["MF"].to_numpy() == pytest.approx(f["MF"].to_numpy())
+        assert out.index[0] == f.index[0]
+    assert info["units"] == "percent" or info["units"] == "decimal"
+    assert factors.parse_upload(own_csv(f, pct=False).encode(), "f.csv")[1]["units"] == "decimal"
+    assert factors.parse_upload(own_csv(f).encode(), "f.csv")[1]["units"] == "percent"
+
+
+def test_own_file_without_rf_assumes_zero_and_says_so():
+    f = factor_frame(pd.bdate_range("2026-01-01", periods=80).date)
+    text = "\n".join(["Date,MF,SMB,HML,WML"] + [f"{d},{r.MF},{r.SMB},{r.HML},{r.WML}" for d, r in (f * 100).iterrows()])
+    out, info = factors.parse_upload(text.encode(), "f.csv")
+    assert (out["RF"] == 0).all() and any("RF" in w for w in info["warnings"])
+
+
+@pytest.mark.parametrize("text, words", [
+    ("Date,MF,SMB,HML\n2026-01-01,1,1,1\n", "WML"),
+    ("Date,MF,SMB,HML,WML,RF\n" + "".join(f"2026-01-{d:02d},1,1,1,1,0\n" for d in range(1, 20)), "60"),
+    ("Date,MF,SMB,HML,WML,RF\n" + "".join(f"{y}-{m:02d}-28,1,1,1,1,0\n" for y in range(2015, 2026) for m in range(1, 13)), "daily"),
+    ("not a table at all", "read"),
+])
+def test_bad_own_files_are_refused_with_a_reason(text, words):
+    with pytest.raises(ValueError, match=words):
+        factors.parse_upload(text.encode(), "f.csv")
+
+
+def test_own_file_round_trip_through_the_data_folder(tmp_path):
+    f = factor_frame(pd.bdate_range("2026-01-01", periods=100).date)
+    info = factors.save_upload(tmp_path, own_csv(f).encode(), "mine.csv")
+    assert info["name"] == "mine.csv" and info["rows"] == 100 and info["from"] == str(f.index[0])
+    meta, back = factors.load_upload(tmp_path)
+    assert meta["rows"] == 100 and back["SMB"].to_numpy() == pytest.approx(f["SMB"].to_numpy())
+    factors.delete_upload(tmp_path)
+    assert factors.load_upload(tmp_path) is None
+
+
+def test_endpoint_upload_then_analyse_with_own_and_combined_data(market):
+    client, loads = market
+    assert client.get("/api/factors/upload").json() is None
+    assert client.get("/api/factors", params={"source": "upload"}).status_code == 404
+    # rebuild the same factors the fixture uses, then add later days the IIMA copy lacks
+    iima = factors.load(None)[1]
+    later = factor_frame(pd.bdate_range("2026-01-01", periods=150).date)
+    res = client.post("/api/factors/upload", files={"file": ("mine.csv", own_csv(pd.concat([iima.tail(300), later])).encode(), "text/csv")})
+    assert res.status_code == 200, res.text
+    assert res.json()["rows"] == 450 and client.get("/api/factors/upload").json()["name"] == "mine.csv"
+
+    own = client.get("/api/factors", params={"source": "upload", "window": 252}).json()
+    assert own["source_id"] == "upload" and own["data_to"] == str(later.index[-1]) and own["observations"] == 252
+    assert any("mine.csv" in n for n in own["notes"])
+
+    both = client.get("/api/factors", params={"source": "combined", "window": 756}).json()
+    assert both["data_to"] == str(later.index[-1]) and both["observations"] == 756
+
+    assert client.get("/api/factors", params={"source": "nope"}).status_code == 422
+    bad = client.post("/api/factors/upload", files={"file": ("x.csv", b"Date,MF\n2026-01-01,1\n", "text/csv")})
+    assert bad.status_code == 422 and "SMB" in bad.json()["detail"]
+    assert client.delete("/api/factors/upload").status_code == 200
+    assert client.get("/api/factors/upload").json() is None

@@ -1,4 +1,4 @@
-import type { DemergerInput, FactorAnalysis, MarketsOverview, MoversUniverse, OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
+import type { DemergerInput, FactorAnalysis, FactorSource, FactorUpload, MarketsOverview, MoversUniverse, OptimizeRequest, Rolling, PortfolioCash, Timeline, NewsSource, EverythingPreview, EverythingResult, ProjectionResult, WealthInput, WealthItemRow, WealthOverview, NewsFeed, ImportFormats, ImportPreview, StressResult, ActionReview, CacheStatus, OptimizerResult, WatchItem, AssetClass, BenchmarkOption, Bond, BondInput, BseSyncResult, ConnectionsState, CorporateAction, TradeInput, ImportResult, InsightState, Memo, LiveSnapshot, Portfolio, PriceSource, SearchResponse, Settings, SourceId, SyncResult, Trade } from "./types";
 
 declare global {
   interface Window {
@@ -87,7 +87,15 @@ export const api = {
     json<{ id: number }>("POST", "/api/corporate-actions", a),
   addDemerger: (d: DemergerInput) => json<{ new_symbol: string }>("POST", "/api/corporate-actions/demerger", d),
   removeAction: (id: number) => call<{ deleted: number }>(`/api/corporate-actions/${id}`, { method: "DELETE" }),
-  factors: (window: 252 | 756 | 1260) => call<FactorAnalysis>(`/api/factors?window=${window}`),
+  factors: (window: 252 | 756 | 1260, source: FactorSource = "iima") =>
+    call<FactorAnalysis>(`/api/factors?window=${window}&source=${source}`),
+  factorUpload: () => call<FactorUpload | null>("/api/factors/upload"),
+  uploadFactors: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return call<FactorUpload>("/api/factors/upload", { method: "POST", body: form });
+  },
+  removeFactorUpload: () => call<{ removed: boolean }>("/api/factors/upload", { method: "DELETE" }),
   resetEverything: (credentials: boolean) =>
     json<{ reset: boolean; credentials_removed: boolean }>("POST", "/api/reset", { confirm: "RESET", credentials }),
   refreshMarket: () => call<{ warnings: string[] }>("/api/market/refresh", { method: "POST" }),

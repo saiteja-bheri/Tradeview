@@ -666,6 +666,20 @@ export interface FactorAnalysis {
   holdings: (FactorFit & { symbol: string; name: string; weight: number })[];
   excluded: string[];
   citation: string;
-  source: string;
+  source: string | null;
+  source_id: FactorSource;
+  upload: FactorUpload | null;
   notes: string[];
+}
+
+export type FactorSource = "iima" | "upload" | "combined";
+
+export interface FactorUpload {
+  name: string;
+  rows: number;
+  from: string;
+  to: string;
+  units: "percent" | "decimal";
+  warnings: string[];
+  uploaded: string;
 }
